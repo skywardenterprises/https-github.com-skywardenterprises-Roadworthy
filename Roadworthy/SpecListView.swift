@@ -56,6 +56,11 @@ struct SpecListView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(spec.name).font(.headline)
+                    if !spec.brand.isEmpty {
+                        Text(spec.brand)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if !spec.notes.isEmpty {
                         Text(spec.notes)
                             .font(.caption)
@@ -91,30 +96,65 @@ struct AddEditSpecView: View {
     var spec: VehicleSpec?
 
     private static let customOption = "Custom…"
-    private static let partPresets = [
-        "Oil Filter", "Air Filter", "Cabin Air Filter",
-        "Brake Pads (Front)", "Brake Pads (Rear)",
-        "Brake Rotors (Front)", "Brake Rotors (Rear)",
-        "Spark Plugs", "Serpentine Belt", "Battery",
-        "Wiper Blades (Front)", "Wiper Blade (Rear)", customOption
-    ]
-    private static let torquePresets = [
-        "Wheel Lug Nuts", "Oil Drain Plug", "Spark Plugs",
-        "Oil Filter Housing Cap", customOption
-    ]
+    private static let torqueUnits = ["ft-lb", "in-lb", "Nm", "kgf·m"]
+
+    private var partPresets: [String] {
+        switch vehicle.vehicleType {
+        case .motorcycle:
+            return [
+                "Oil Filter", "Air Filter", "Spark Plugs",
+                "Chain & Sprocket Kit", "Drive Belt",
+                "Brake Pads (Front)", "Brake Pads (Rear)", "Battery",
+                Self.customOption
+            ]
+        default:
+            return [
+                "Oil Filter", "Air Filter", "Cabin Air Filter",
+                "Brake Pads (Front)", "Brake Pads (Rear)",
+                "Brake Rotors (Front)", "Brake Rotors (Rear)",
+                "Spark Plugs", "Serpentine Belt", "Battery",
+                "Wiper Blades (Front)", "Wiper Blade (Rear)", Self.customOption
+            ]
+        }
+    }
+
+    private var torquePresets: [String] {
+        switch vehicle.vehicleType {
+        case .motorcycle:
+            return [
+                "Front Axle Nut", "Rear Axle Nut",
+                "Front Brake Caliper", "Rear Brake Caliper",
+                "Chain Slack", "Oil Drain Plug", "Spark Plugs", Self.customOption
+            ]
+        default:
+            return [
+                "Wheel Lug Nuts", "Oil Drain Plug", "Spark Plugs",
+                "Oil Filter Housing Cap", Self.customOption
+            ]
+        }
+    }
 
     @State private var category: SpecCategory = .part
-    @State private var presetName: String = AddEditSpecView.partPresets.first!
+    @State private var presetName: String = ""
     @State private var customName = ""
     @State private var value = ""
+    @State private var brand = ""
+    @State private var torqueMagnitude = ""
+    @State private var torqueUnit: String = AddEditSpecView.torqueUnits.first!
     @State private var notes = ""
 
     private var isEditing: Bool { spec != nil }
     private var presetOptions: [String] {
-        category == .part ? Self.partPresets : Self.torquePresets
+        category == .part ? partPresets : torquePresets
     }
     private var finalName: String {
         presetName == Self.customOption ? customName : presetName
+    }
+    private var finalValue: String {
+        if category == .torque {
+            return torqueMagnitude.isEmpty ? "" : "\(torqueMagnitude) \(torqueUnit)"
+        }
+        return value
     }
 
     var body: some View {
@@ -134,10 +174,23 @@ struct AddEditSpecView: View {
                     if presetName == Self.customOption {
                         TextField("Name", text: $customName)
                     }
-                    TextField(
-                        category == .part ? "Part Number" : "Torque Value (e.g. 89 ft-lb)",
-                        text: $value
-                    )
+
+                    if category == .torque {
+                        HStack {
+                            TextField("Value", text: $torqueMagnitude)
+                                .keyboardType(.decimalPad)
+                            Picker("Unit", selection: $torqueUnit) {
+                                ForEach(Self.torqueUnits, id: \.self) { unit in
+                                    Text(unit).tag(unit)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                    } else {
+                        TextField("Brand (e.g. Bosch, Fram)", text: $brand)
+                        TextField("Part Number", text: $value)
+                    }
+
                     TextField("Notes", text: $notes, axis: .vertical)
                 }
 
@@ -170,9 +223,11 @@ struct AddEditSpecView: View {
     }
 
     private func loadExistingValues() {
-        guard let spec else { return }
+        guard let spec else {
+            presetName = presetOptions.first ?? Self.customOption
+            return
+        }
         category = spec.category
-        value = spec.value
         notes = spec.notes
         if presetOptions.contains(spec.name) {
             presetName = spec.name
@@ -180,16 +235,37 @@ struct AddEditSpecView: View {
             presetName = Self.customOption
             customName = spec.name
         }
+
+        if spec.category == .torque {
+            // Try to split "89 ft-lb" back into a magnitude and a known unit.
+            let parts = spec.value.split(separator: " ")
+            if let last = parts.last, Self.torqueUnits.contains(String(last)) {
+                torqueUnit = String(last)
+                torqueMagnitude = parts.dropLast().joined(separator: " ")
+            } else {
+                torqueMagnitude = spec.value
+            }
+        } else {
+            value = spec.value
+            brand = spec.brand
+        }
     }
 
     private func save() {
         if let spec {
             spec.category = category
             spec.name = finalName
-            spec.value = value
+            spec.value = finalValue
+            spec.brand = category == .part ? brand : ""
             spec.notes = notes
         } else {
-            let newSpec = VehicleSpec(category: category, name: finalName, value: value, notes: notes)
+            let newSpec = VehicleSpec(
+                category: category,
+                name: finalName,
+                value: finalValue,
+                brand: category == .part ? brand : "",
+                notes: notes
+            )
             newSpec.vehicle = vehicle
             context.insert(newSpec)
         }

@@ -4,7 +4,7 @@ import SwiftData
 struct FuelListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
-    @State private var showingAdd = false
+    @State private var logToEdit: FuelLog?
 
     private var sortedLogs: [FuelLog] {
         vehicle.fuelLogs.sorted { $0.date > $1.date }
@@ -32,7 +32,7 @@ struct FuelListView: View {
                 ContentUnavailableView(
                     "No Fuel Logged",
                     systemImage: "fuelpump",
-                    description: Text("Tap + to log a fill-up.")
+                    description: Text("Use the + button to log a fill-up.")
                 )
             } else {
                 List {
@@ -43,27 +43,34 @@ struct FuelListView: View {
                     }
                     Section {
                         ForEach(sortedLogs) { log in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("\(log.gallons.formatted(.number.precision(.fractionLength(1)))) gal")
-                                        .font(.headline)
-                                    Spacer()
-                                    Text(log.totalCost, format: .currency(code: "USD"))
-                                        .foregroundStyle(.secondary)
-                                }
-                                HStack {
-                                    Text(log.date.formatted(date: .abbreviated, time: .omitted))
-                                    Text("•")
-                                    Text("\(log.mileage.formatted()) mi")
-                                    Text("•")
-                                    Text("\(log.pricePerGallon, format: .currency(code: "USD"))/gal")
-                                    if !log.isFullTank {
-                                        Text("• partial")
+                            Button {
+                                logToEdit = log
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text("\(log.gallons.formatted(.number.precision(.fractionLength(1)))) gal")
+                                            .font(.headline)
+                                        Spacer()
+                                        Text(log.totalCost, format: .currency(code: "USD"))
+                                            .foregroundStyle(.secondary)
                                     }
+                                    HStack {
+                                        Text(log.date.formatted(date: .abbreviated, time: .omitted))
+                                        Text("•")
+                                        Text("\(log.mileage.formatted()) mi")
+                                        Text("•")
+                                        Text("\(log.pricePerGallon, format: .currency(code: "USD"))/gal")
+                                        if !log.isFullTank {
+                                            Text("• partial")
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.primary)
                         }
                         .onDelete(perform: deleteLogs)
                     }
@@ -71,13 +78,9 @@ struct FuelListView: View {
             }
         }
         .navigationTitle("Fuel")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showingAdd = true } label: { Image(systemName: "plus") }
-            }
-        }
-        .sheet(isPresented: $showingAdd) {
-            AddFuelView(vehicle: vehicle)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $logToEdit) { log in
+            AddEditFuelView(vehicle: vehicle, log: log)
         }
     }
 
@@ -88,16 +91,23 @@ struct FuelListView: View {
     }
 }
 
-struct AddFuelView: View {
+struct AddEditFuelView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     let vehicle: Vehicle
 
+    // If editing an existing log, pass it in. Nil means "creating new".
+    var log: FuelLog?
+
     @State private var date = Date.now
-    @State private var mileage = 0
-    @State private var gallons = 0.0
-    @State private var pricePerGallon = 0.0
+    @State private var mileageText = ""
+    @State private var gallonsText = ""
+    @State private var priceText = ""
     @State private var isFullTank = true
+
+    private var isEditing: Bool { log != nil }
+    private var gallonsValue: Double { Double(gallonsText) ?? 0 }
+    private var priceValue: Double { Double(priceText) ?? 0 }
 
     var body: some View {
         NavigationStack {
@@ -106,34 +116,43 @@ struct AddFuelView: View {
                 HStack {
                     Text("Mileage")
                     Spacer()
-                    TextField("Mileage", value: $mileage, format: .number)
+                    TextField("Mileage", text: $mileageText)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
                 }
                 HStack {
                     Text("Gallons")
                     Spacer()
-                    TextField("Gallons", value: $gallons, format: .number)
+                    TextField("Gallons", text: $gallonsText)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
                 HStack {
                     Text("Price / Gallon")
                     Spacer()
-                    TextField("Price", value: $pricePerGallon, format: .currency(code: "USD"))
+                    TextField("Price", text: $priceText)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
                 Toggle("Filled to Full Tank", isOn: $isFullTank)
 
-                if gallons > 0 {
+                if gallonsValue > 0 {
                     LabeledContent("Total") {
-                        Text(gallons * pricePerGallon, format: .currency(code: "USD"))
+                        Text(gallonsValue * priceValue, format: .currency(code: "USD"))
+                    }
+                }
+
+                if isEditing {
+                    Section {
+                        Button("Delete Fuel Log", role: .destructive) {
+                            deleteAndDismiss()
+                        }
                     }
                 }
             }
-            .navigationTitle("Log Fuel")
+            .navigationTitle(isEditing ? "Edit Fuel" : "Log Fuel")
             .navigationBarTitleDisplayMode(.inline)
+            .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -142,21 +161,49 @@ struct AddFuelView: View {
                     Button("Save") { save() }
                 }
             }
+            .onAppear(perform: loadExistingValues)
         }
     }
 
+    private func loadExistingValues() {
+        guard let log else { return }
+        date = log.date
+        mileageText = log.mileage == 0 ? "" : String(log.mileage)
+        gallonsText = log.gallons == 0 ? "" : String(log.gallons)
+        priceText = log.pricePerGallon == 0 ? "" : String(log.pricePerGallon)
+        isFullTank = log.isFullTank
+    }
+
     private func save() {
-        let log = FuelLog(
-            date: date,
-            mileage: mileage,
-            gallons: gallons,
-            pricePerGallon: pricePerGallon,
-            isFullTank: isFullTank
-        )
-        log.vehicle = vehicle
-        context.insert(log)
+        let mileage = Int(mileageText) ?? 0
+
+        if let log {
+            log.date = date
+            log.mileage = mileage
+            log.gallons = gallonsValue
+            log.pricePerGallon = priceValue
+            log.isFullTank = isFullTank
+        } else {
+            let newLog = FuelLog(
+                date: date,
+                mileage: mileage,
+                gallons: gallonsValue,
+                pricePerGallon: priceValue,
+                isFullTank: isFullTank
+            )
+            newLog.vehicle = vehicle
+            context.insert(newLog)
+        }
+
         if mileage > vehicle.currentMileage {
             vehicle.currentMileage = mileage
+        }
+        dismiss()
+    }
+
+    private func deleteAndDismiss() {
+        if let log {
+            context.delete(log)
         }
         dismiss()
     }

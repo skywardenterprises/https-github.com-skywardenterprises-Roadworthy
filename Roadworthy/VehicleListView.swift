@@ -3,33 +3,48 @@ import SwiftData
 
 struct VehicleListView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \Vehicle.nickname) private var vehicles: [Vehicle]
+    @Query(filter: #Predicate<Vehicle> { $0.isActive == true }, sort: \Vehicle.nickname)
+    private var vehicles: [Vehicle]
+    @Query(filter: #Predicate<Vehicle> { $0.isActive == false }, sort: \Vehicle.nickname)
+    private var inactiveVehicles: [Vehicle]
     @State private var showingAddVehicle = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if vehicles.isEmpty {
+            List {
+                ForEach(vehicles) { vehicle in
+                    NavigationLink {
+                        VehicleDetailView(vehicle: vehicle)
+                    } label: {
+                        VehicleRow(vehicle: vehicle)
+                    }
+                }
+                .onDelete(perform: deleteVehicles)
+
+                if !inactiveVehicles.isEmpty {
+                    Section {
+                        NavigationLink {
+                            InactiveVehiclesView()
+                        } label: {
+                            Label(
+                                "Inactive Vehicles (\(inactiveVehicles.count))",
+                                systemImage: "archivebox"
+                            )
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if vehicles.isEmpty && inactiveVehicles.isEmpty {
                     ContentUnavailableView(
                         "No Vehicles Yet",
                         systemImage: "car.fill",
                         description: Text("Tap + to add your first vehicle.")
                     )
-                } else {
-                    List {
-                        ForEach(vehicles) { vehicle in
-                            NavigationLink(value: vehicle) {
-                                VehicleRow(vehicle: vehicle)
-                            }
-                        }
-                        .onDelete(perform: deleteVehicles)
-                    }
                 }
             }
             .navigationTitle("Roadworthy")
-            .navigationDestination(for: Vehicle.self) { vehicle in
-                VehicleDetailView(vehicle: vehicle)
-            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -67,13 +82,13 @@ struct VehicleRow: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.secondary.opacity(0.15))
                     .frame(width: 50, height: 50)
-                    .overlay(Image(systemName: "car.fill").foregroundStyle(.secondary))
+                    .overlay(Image(systemName: vehicle.vehicleType.iconName).foregroundStyle(.secondary))
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(vehicle.displayName)
                     .font(.headline)
-                Text("\(vehicle.year) \(vehicle.make) \(vehicle.model)")
+                Text(String(vehicle.year) + " " + vehicle.make + " " + vehicle.model)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Text("\(vehicle.currentMileage.formatted()) mi")

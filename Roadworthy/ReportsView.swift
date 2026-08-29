@@ -35,6 +35,7 @@ struct ReportsView: View {
     @State private var breakdownRange: BreakdownRange = .allTime
     @State private var comparisonPeriod: ComparisonPeriod = .month
     @State private var comparisonMetric: ComparisonMetric = .mpg
+    @AppStorage("businessMileageRate") private var mileageRate: Double = 0.76
 
     var body: some View {
         ScrollView {
@@ -44,6 +45,8 @@ struct ReportsView: View {
                 spendingBreakdownSection
                 costPerMileSection
                 comparisonSection
+                businessMileageSection
+                ownershipSection
             }
             .padding(.vertical, 16)
         }
@@ -73,8 +76,8 @@ struct ReportsView: View {
         return points
     }
 
-    private var pricePoints: [(date: Date, price: Double)] {
-        vehicle.fuelLogs.sorted { $0.date < $1.date }.map { (date: $0.date, price: $0.pricePerGallon) }
+    private var pricePoints: [(date: Date, value: Double)] {
+        vehicle.fuelLogs.sorted { $0.date < $1.date }.map { (date: $0.date, value: $0.pricePerGallon) }
     }
 
     // MARK: - Aggregation (Per Fill-Up / Week / Month / Year)
@@ -446,6 +449,140 @@ struct ReportsView: View {
                 }
                 .frame(height: 200)
                 .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    // MARK: - Section 6: Business Mileage
+
+    private struct MonthlyBusinessMiles: Identifiable {
+        let id = UUID()
+        let monthStart: Date
+        let miles: Int
+    }
+
+    private var totalBusinessMiles: Int {
+        vehicle.trips.filter { $0.purpose == .business }.reduce(0) { $0 + $1.milesDriven }
+    }
+    private var estimatedDeduction: Double {
+        Double(totalBusinessMiles) * mileageRate
+    }
+
+    private var monthlyBusinessMiles: [MonthlyBusinessMiles] {
+        let businessTrips = vehicle.trips.filter { $0.purpose == .business }
+        guard !businessTrips.isEmpty else { return [] }
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: businessTrips) { trip in
+            calendar.dateComponents([.year, .month], from: trip.date)
+        }
+        return grouped.compactMap { _, trips -> MonthlyBusinessMiles? in
+            guard let representativeDate = trips.map(\.date).min() else { return nil }
+            let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: representativeDate)) ?? representativeDate
+            let miles = trips.reduce(0) { $0 + $1.milesDriven }
+            return MonthlyBusinessMiles(monthStart: monthStart, miles: miles)
+        }
+        .sorted { $0.monthStart < $1.monthStart }
+    }
+
+    private var businessMileageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("BUSINESS MILEAGE")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                statCard(value: "\(totalBusinessMiles.formatted())", label: "BUSINESS MI")
+                statCard(value: estimatedDeduction.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "DEDUCTION")
+                statCard(value: "$" + String(format: "%.2f", mileageRate), label: "RATE / MI")
+            }
+            .padding(.horizontal, 16)
+
+            if monthlyBusinessMiles.isEmpty {
+                emptyChartPlaceholder("Log a business trip to see your mileage trend here.")
+                    .padding(.horizontal, 16)
+            } else {
+                Chart(monthlyBusinessMiles) { point in
+                    BarMark(
+                        x: .value("Month", point.monthStart, unit: .month),
+                        y: .value("Miles", point.miles)
+                    )
+                    .foregroundStyle(Color.accentColor)
+                }
+                .frame(height: 180)
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    // MARK: - Section 7: True Cost of Ownership
+
+    private var monthsOwned: Int {
+        let months = Calendar.current.dateComponents([.month], from: vehicle.purchaseDate, to: .now).month ?? 0
+        return max(1, months)
+    }
+
+    /// Depreciation (purchase price − current value) plus everything spent
+    /// keeping the vehicle running. Nil until a current value is entered,
+    /// since depreciation can't be calculated without one.
+    private var netCostOfOwnership: Double? {
+        guard let currentValue = vehicle.estimatedCurrentValue else { return nil }
+        let depreciation = vehicle.purchasePrice - currentValue
+        return depreciation + totalSpend
+    }
+    private var costPerMonthOwned: Double? {
+        guard let netCost = netCostOfOwnership else { return nil }
+        return netCost / Double(monthsOwned)
+    }
+    private var costPerMileOwned: Double? {
+        guard let netCost = netCostOfOwnership, vehicle.currentMileage > 0 else { return nil }
+        return netCost / Double(vehicle.currentMileage)
+    }
+
+    private var ownershipSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("TRUE COST OF OWNERSHIP")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                statCard(
+                    value: vehicle.purchasePrice > 0 ? vehicle.purchasePrice.formatted(.currency(code: "USD").precision(.fractionLength(0))) : "—",
+                    label: "PURCHASE PRICE"
+                )
+                statCard(
+                    value: vehicle.estimatedCurrentValue.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(0))) } ?? "—",
+                    label: "CURRENT VALUE"
+                )
+                statCard(
+                    value: totalSpend.formatted(.currency(code: "USD").precision(.fractionLength(0))),
+                    label: "TOTAL SPEND"
+                )
+            }
+            .padding(.horizontal, 16)
+
+            if let netCost = netCostOfOwnership {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    statCard(value: netCost.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "NET COST")
+                    statCard(
+                        value: costPerMonthOwned.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(0))) } ?? "—",
+                        label: "COST / MONTH"
+                    )
+                    statCard(
+                        value: costPerMileOwned.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(2))) } ?? "—",
+                        label: "COST / MILE OWNED"
+                    )
+                }
+                .padding(.horizontal, 16)
+
+                if let updatedDate = vehicle.estimatedValueUpdatedDate {
+                    Text("Value last updated \(updatedDate.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                }
+            } else {
+                Text("Add an Estimated Current Value in Edit Vehicle to see your full cost of ownership, including depreciation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
             }
         }
     }

@@ -7,6 +7,16 @@ struct VehicleLogsView: View {
     var body: some View {
         List {
             NavigationLink {
+                ReportsView(vehicle: vehicle)
+            } label: {
+                logRow(
+                    icon: "chart.line.uptrend.xyaxis",
+                    title: "Reports",
+                    subtitle: "MPG, cost, and spending trends"
+                )
+            }
+
+            NavigationLink {
                 MaintenanceListView(vehicle: vehicle)
             } label: {
                 logRow(
@@ -37,6 +47,16 @@ struct VehicleLogsView: View {
             }
 
             NavigationLink {
+                TripListView(vehicle: vehicle)
+            } label: {
+                logRow(
+                    icon: "map.fill",
+                    title: "Trips",
+                    subtitle: "\(vehicle.trips.count) logged"
+                )
+            }
+
+            NavigationLink {
                 ReminderListView(vehicle: vehicle)
             } label: {
                 logRow(
@@ -53,6 +73,26 @@ struct VehicleLogsView: View {
                     icon: "doc.fill",
                     title: "Documents",
                     subtitle: "\(vehicle.documents.count) saved"
+                )
+            }
+
+            NavigationLink {
+                SpecListView(vehicle: vehicle)
+            } label: {
+                logRow(
+                    icon: "list.clipboard.fill",
+                    title: "Vehicle Specs",
+                    subtitle: "\(vehicle.specs.count) saved"
+                )
+            }
+
+            NavigationLink {
+                ExportView(vehicle: vehicle)
+            } label: {
+                logRow(
+                    icon: "square.and.arrow.up",
+                    title: "Export & Share",
+                    subtitle: "PDF, CSV, and full history report"
                 )
             }
         }

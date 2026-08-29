@@ -4,7 +4,6 @@ import SwiftData
 struct ReminderListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
-    @Binding var showingAdd: Bool
     @State private var reminderToEdit: MaintenanceReminder?
 
     // Reminders that are already due show first, then soonest-due next.
@@ -23,7 +22,7 @@ struct ReminderListView: View {
                 ContentUnavailableView(
                     "No Reminders Set",
                     systemImage: "bell",
-                    description: Text("Tap the + button below to set up a recurring reminder.")
+                    description: Text("Use the + button to set up a recurring reminder.")
                 )
             } else {
                 List {
@@ -40,9 +39,8 @@ struct ReminderListView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingAdd) {
-            AddEditReminderView(vehicle: vehicle, reminder: nil)
-        }
+        .navigationTitle("Reminders")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $reminderToEdit) { reminder in
             AddEditReminderView(vehicle: vehicle, reminder: reminder)
         }
@@ -52,6 +50,11 @@ struct ReminderListView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(reminder.title).font(.headline)
+                if reminder.notificationsEnabled {
+                    Image(systemName: "bell.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if reminder.isDue(currentMileage: vehicle.currentMileage) {
                     Text("Due")
@@ -83,7 +86,9 @@ struct ReminderListView: View {
 
     private func deleteReminders(at offsets: IndexSet) {
         for index in offsets {
-            context.delete(sortedReminders[index])
+            let reminder = sortedReminders[index]
+            ReminderNotificationManager.cancel(for: reminder)
+            context.delete(reminder)
         }
     }
 }
@@ -107,6 +112,9 @@ struct AddEditReminderView: View {
     @State private var repeatByDate = false
     @State private var intervalMonthsText = ""
 
+    @State private var notificationsEnabled = false
+    @State private var notifyDaysBefore = 0
+
     private var isEditing: Bool { reminder != nil }
 
     var body: some View {
@@ -115,7 +123,7 @@ struct AddEditReminderView: View {
                 Section {
                     Picker("Type", selection: $type) {
                         ForEach(MaintenanceType.allCases) { type in
-                            Text(type.rawValue).tag(type)
+                            Text(type.displayName).tag(type)
                         }
                     }
                     if type == .other {
@@ -163,6 +171,23 @@ struct AddEditReminderView: View {
                     }
                 }
 
+                Section("Notifications") {
+                    if repeatByDate {
+                        Toggle("Notify Me", isOn: $notificationsEnabled)
+                        if notificationsEnabled {
+                            Stepper(
+                                "Remind me \(notifyDaysBefore) day\(notifyDaysBefore == 1 ? "" : "s") before",
+                                value: $notifyDaysBefore,
+                                in: 0...30
+                            )
+                        }
+                    } else {
+                        Text("Turn on \"Repeat Every X Months\" above to enable notifications — mileage-only reminders can't be scheduled in advance, since there's no way to predict when a certain mileage will be reached.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 if isEditing {
                     Section {
                         Button("Mark as Done (Reschedule)") {
@@ -199,6 +224,8 @@ struct AddEditReminderView: View {
         intervalMilesText = reminder.intervalMiles == 0 ? "" : String(reminder.intervalMiles)
         repeatByDate = reminder.repeatByDate
         intervalMonthsText = reminder.intervalMonths == 0 ? "" : String(reminder.intervalMonths)
+        notificationsEnabled = reminder.notificationsEnabled
+        notifyDaysBefore = reminder.notifyDaysBefore
         if type == .other && title != MaintenanceType.other.rawValue {
             otherTypeDescription = title
         }
@@ -216,6 +243,7 @@ struct AddEditReminderView: View {
             finalTitle = type.rawValue
         }
 
+        let savedReminder: MaintenanceReminder
         if let reminder {
             reminder.type = type
             reminder.title = finalTitle
@@ -224,6 +252,9 @@ struct AddEditReminderView: View {
             reminder.intervalMiles = intervalMiles
             reminder.repeatByDate = repeatByDate
             reminder.intervalMonths = intervalMonths
+            reminder.notificationsEnabled = notificationsEnabled
+            reminder.notifyDaysBefore = notifyDaysBefore
+            savedReminder = reminder
         } else {
             let newReminder = MaintenanceReminder(
                 title: finalTitle,
@@ -234,11 +265,19 @@ struct AddEditReminderView: View {
                 repeatByDate: repeatByDate,
                 intervalMonths: intervalMonths,
                 baselineMileage: vehicle.currentMileage,
-                baselineDate: .now
+                baselineDate: .now,
+                notificationsEnabled: notificationsEnabled,
+                notifyDaysBefore: notifyDaysBefore
             )
             newReminder.vehicle = vehicle
             context.insert(newReminder)
+            savedReminder = newReminder
         }
+
+        if notificationsEnabled {
+            ReminderNotificationManager.requestAuthorizationIfNeeded()
+        }
+        ReminderNotificationManager.schedule(for: savedReminder, vehicleName: vehicle.displayName)
         dismiss()
     }
 
@@ -248,11 +287,13 @@ struct AddEditReminderView: View {
         guard let reminder else { return }
         reminder.baselineMileage = vehicle.currentMileage
         reminder.baselineDate = .now
+        ReminderNotificationManager.schedule(for: reminder, vehicleName: vehicle.displayName)
         dismiss()
     }
 
     private func deleteAndDismiss() {
         if let reminder {
+            ReminderNotificationManager.cancel(for: reminder)
             context.delete(reminder)
         }
         dismiss()

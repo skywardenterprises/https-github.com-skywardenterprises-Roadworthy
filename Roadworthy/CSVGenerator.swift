@@ -1,10 +1,12 @@
 import Foundation
 
-/// Builds CSV files for the Export & Share feature. Kept in its own file
-/// (Foundation only, no UIKit) so it isn't affected by the main-actor
-/// isolation Swift infers for types that use UIKit, like ExportGenerator.
+/// Builds CSV files for the Export & Share feature.
+/// Explicitly marked `nonisolated` on every member — this project defaults
+/// new types to main-actor isolation, which otherwise causes a build error
+/// when one function (like csvEscape) is called from inside another
+/// (like csv(from:)) via a higher-order function such as .map(_:).
 enum CSVGenerator {
-    static func maintenanceHistoryCSV(vehicle: Vehicle) -> String {
+    nonisolated static func maintenanceHistoryCSV(vehicle: Vehicle) -> String {
         var rows: [[String]] = [["Date", "Type", "Title", "Mileage", "Cost", "Notes"]]
         for record in vehicle.maintenanceRecords.sorted(by: { $0.date > $1.date }) {
             rows.append([
@@ -19,11 +21,11 @@ enum CSVGenerator {
         return csv(from: rows)
     }
 
-    private static func csv(from rows: [[String]]) -> String {
+    nonisolated private static func csv(from rows: [[String]]) -> String {
         rows.map { row in row.map(csvEscape).joined(separator: ",") }.joined(separator: "\n")
     }
 
-    private static func csvEscape(_ field: String) -> String {
+    nonisolated private static func csvEscape(_ field: String) -> String {
         if field.contains(",") || field.contains("\"") || field.contains("\n") {
             return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }

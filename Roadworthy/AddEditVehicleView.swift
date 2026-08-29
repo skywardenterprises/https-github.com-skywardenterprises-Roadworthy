@@ -15,12 +15,22 @@ struct AddEditVehicleView: View {
     @State private var year = Calendar.current.component(.year, from: .now)
     @State private var vin = ""
     @State private var licensePlate = ""
-    @State private var currentMileage = 0
+    @State private var mileageText = ""
     @State private var purchaseDate = Date.now
     @State private var photoData: Data?
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isActive = true
+    @State private var vehicleType: VehicleType = .car
+    @State private var purchasePriceText = ""
+    @State private var currentValueText = ""
 
     private var isEditing: Bool { vehicle != nil }
+
+    // Current year first, going back to 1950 — e.g. 2026, 2025, 2024, ...
+    private var availableYears: [Int] {
+        let currentYear = Calendar.current.component(.year, from: .now)
+        return Array((1950...currentYear).reversed())
+    }
 
     var body: some View {
         NavigationStack {
@@ -51,27 +61,81 @@ struct AddEditVehicleView: View {
                 }
 
                 Section("Vehicle Info") {
+                    Picker("Vehicle Type", selection: $vehicleType) {
+                        ForEach(VehicleType.allCases) { type in
+                            Label(type.rawValue, systemImage: type.iconName).tag(type)
+                        }
+                    }
                     TextField("Nickname (e.g. My Truck)", text: $nickname)
                     TextField("Make (e.g. Toyota)", text: $make)
                     TextField("Model (e.g. Tacoma)", text: $model)
-                    Stepper("Year: \(year)", value: $year, in: 1950...2100)
+                    Picker("Year", selection: $year) {
+                        ForEach(availableYears, id: \.self) { y in
+                            Text(String(y)).tag(y)
+                        }
+                    }
+                    .pickerStyle(.menu)
                 }
 
                 Section("Details") {
                     TextField("VIN", text: $vin)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.characters)
+                        .onChange(of: vin) { _, newValue in
+                            vin = newValue.uppercased()
+                        }
                     TextField("License Plate", text: $licensePlate)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.characters)
+                        .onChange(of: licensePlate) { _, newValue in
+                            licensePlate = newValue.uppercased()
+                        }
                     HStack {
                         Text("Current Mileage")
                         Spacer()
-                        TextField("Mileage", value: $currentMileage, format: .number)
+                        TextField("Mileage", text: $mileageText)
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
+                            .onChange(of: mileageText) { _, newValue in
+                                let digitsOnly = newValue.filter(\.isNumber)
+                                mileageText = digitsOnly.isEmpty ? "" : (Int(digitsOnly)?.formatted() ?? digitsOnly)
+                            }
                     }
                     DatePicker("Purchase Date", selection: $purchaseDate, displayedComponents: .date)
+                }
+
+                Section {
+                    HStack {
+                        Text("Purchase Price")
+                        Spacer()
+                        TextField("Price", text: $purchasePriceText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    HStack {
+                        Text("Est. Current Value")
+                        Spacer()
+                        TextField("Value", text: $currentValueText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                } header: {
+                    Text("Ownership Value")
+                } footer: {
+                    Text("Update the current value every so often (based on a quick KBB or Carvana check) to see an accurate cost-of-ownership calculation in Reports.")
+                }
+
+                if isEditing {
+                    Section {
+                        Toggle("Vehicle is Active", isOn: $isActive)
+                    } footer: {
+                        Text("Turn this off when you sell or retire this vehicle. It moves to the Inactive Vehicles list, but all of its history stays intact and can still be viewed.")
+                    }
                 }
             }
             .navigationTitle(isEditing ? "Edit Vehicle" : "Add Vehicle")
             .navigationBarTitleDisplayMode(.inline)
+            .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -93,12 +157,20 @@ struct AddEditVehicleView: View {
         year = vehicle.year
         vin = vehicle.vin
         licensePlate = vehicle.licensePlate
-        currentMileage = vehicle.currentMileage
+        mileageText = vehicle.currentMileage == 0 ? "" : vehicle.currentMileage.formatted()
         purchaseDate = vehicle.purchaseDate
         photoData = vehicle.photoData
+        isActive = vehicle.isActive
+        vehicleType = vehicle.vehicleType
+        purchasePriceText = vehicle.purchasePrice == 0 ? "" : String(vehicle.purchasePrice)
+        currentValueText = vehicle.estimatedCurrentValue.map { String($0) } ?? ""
     }
 
     private func save() {
+        let currentMileage = Int(mileageText.filter(\.isNumber)) ?? 0
+        let purchasePrice = Double(purchasePriceText) ?? 0
+        let currentValue = currentValueText.isEmpty ? nil : Double(currentValueText)
+
         if let vehicle {
             vehicle.nickname = nickname
             vehicle.make = make
@@ -109,6 +181,27 @@ struct AddEditVehicleView: View {
             vehicle.currentMileage = currentMileage
             vehicle.purchaseDate = purchaseDate
             vehicle.photoData = photoData
+            vehicle.vehicleType = vehicleType
+            vehicle.purchasePrice = purchasePrice
+
+            if let currentValue {
+                // Only refresh the "last updated" date if the value actually changed.
+                if vehicle.estimatedCurrentValue != currentValue {
+                    vehicle.estimatedValueUpdatedDate = .now
+                }
+                vehicle.estimatedCurrentValue = currentValue
+            } else {
+                vehicle.estimatedCurrentValue = nil
+                vehicle.estimatedValueUpdatedDate = nil
+            }
+
+            let wasActive = vehicle.isActive
+            vehicle.isActive = isActive
+            if isActive {
+                vehicle.inactiveDate = nil
+            } else if wasActive {
+                vehicle.inactiveDate = .now
+            }
         } else {
             let newVehicle = Vehicle(
                 nickname: nickname,
@@ -119,7 +212,11 @@ struct AddEditVehicleView: View {
                 licensePlate: licensePlate,
                 currentMileage: currentMileage,
                 purchaseDate: purchaseDate,
-                photoData: photoData
+                photoData: photoData,
+                vehicleType: vehicleType,
+                purchasePrice: purchasePrice,
+                estimatedCurrentValue: currentValue,
+                estimatedValueUpdatedDate: currentValue != nil ? .now : nil
             )
             context.insert(newVehicle)
         }
