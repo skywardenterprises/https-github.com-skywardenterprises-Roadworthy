@@ -91,6 +91,8 @@ struct AddEditMaintenanceView: View {
     @State private var setReminder = false
     @State private var nextDueMileageText = ""
     @State private var nextDueDate = Date.now
+    @State private var showingMileageConflictAlert = false
+    @State private var mileageConflictMessage = ""
 
     private var isEditing: Bool { record != nil }
 
@@ -160,6 +162,11 @@ struct AddEditMaintenanceView: View {
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .alert("Mileage Doesn't Add Up", isPresented: $showingMileageConflictAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(mileageConflictMessage)
+            }
         }
     }
 
@@ -191,6 +198,12 @@ struct AddEditMaintenanceView: View {
         let mileage = Int(mileageText) ?? 0
         let cost = Double(costText) ?? 0
         let nextDueMileage = Int(nextDueMileageText) ?? 0
+
+        if let conflict = vehicle.mileageConflict(forDate: date, mileage: mileage, excludingMaintenanceRecord: record) {
+            mileageConflictMessage = "This entry's mileage (\(mileage.formatted()) mi) is lower than a previous log from \(conflict.date.formatted(date: .abbreviated, time: .omitted)) at \(conflict.mileage.formatted()) mi. Please correct the mileage or the date before saving."
+            showingMileageConflictAlert = true
+            return
+        }
 
         // If "Other" was picked, use the free-text description as the title
         // (unless the user also typed a specific Title, which wins).
