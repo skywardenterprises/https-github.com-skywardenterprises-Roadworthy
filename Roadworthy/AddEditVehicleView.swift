@@ -19,6 +19,10 @@ struct AddEditVehicleView: View {
     @State private var purchaseDate = Date.now
     @State private var photoData: Data?
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingPhotoOptions = false
+    @State private var showingCamera = false
+    @State private var showingPhotoLibraryPicker = false
+    @State private var showingPhotoViewer = false
     @State private var isActive = true
     @State private var vehicleType: VehicleType = .car
     @State private var purchasePriceText = ""
@@ -36,7 +40,9 @@ struct AddEditVehicleView: View {
         NavigationStack {
             Form {
                 Section("Photo") {
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    Button {
+                        showingPhotoOptions = true
+                    } label: {
                         HStack {
                             if let photoData, let uiImage = UIImage(data: photoData) {
                                 Image(uiImage: uiImage)
@@ -51,10 +57,48 @@ struct AddEditVehicleView: View {
                             Text(photoData == nil ? "Add Photo" : "Change Photo")
                         }
                     }
+                    .foregroundStyle(.primary)
+                    .confirmationDialog("Vehicle Photo", isPresented: $showingPhotoOptions, titleVisibility: .visible) {
+                        Button("Take Photo") { showingCamera = true }
+                        Button("Choose from Library") {
+                            // The PhotosPicker below is triggered by binding a
+                            // Bool to it, same pattern as the camera sheet.
+                            showingPhotoLibraryPicker = true
+                        }
+                        if photoData != nil {
+                            Button("View Photo") { showingPhotoViewer = true }
+                            Button("Remove Photo", role: .destructive) { photoData = nil }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    }
+                    .sheet(isPresented: $showingCamera) {
+                        CameraPicker(imageData: $photoData)
+                            .ignoresSafeArea()
+                    }
+                    .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
                     .onChange(of: selectedPhoto) { _, newItem in
                         Task {
                             if let data = try? await newItem?.loadTransferable(type: Data.self) {
                                 photoData = data
+                            }
+                        }
+                    }
+                    .sheet(isPresented: $showingPhotoViewer) {
+                        if let photoData, let uiImage = UIImage(data: photoData) {
+                            NavigationStack {
+                                ScrollView {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .padding()
+                                }
+                                .navigationTitle("Vehicle Photo")
+                                .navigationBarTitleDisplayMode(.inline)
+                                .toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Done") { showingPhotoViewer = false }
+                                    }
+                                }
                             }
                         }
                     }
@@ -132,6 +176,19 @@ struct AddEditVehicleView: View {
                         Text("Turn this off when you sell or retire this vehicle. It moves to the Inactive Vehicles list, but all of its history stays intact and can still be viewed.")
                     }
                 }
+
+                #if DEBUG
+                if let vehicle {
+                    Section {
+                        Button("Generate Sample Data") {
+                            SampleDataGenerator.generate(for: vehicle, context: context)
+                            Haptics.success()
+                        }
+                    } footer: {
+                        Text("DEBUG ONLY — adds about a year of realistic fuel, maintenance, expense, reminder, and trip data for testing. This button and its code don't exist in Release builds.")
+                    }
+                }
+                #endif
             }
             .navigationTitle(isEditing ? "Edit Vehicle" : "Add Vehicle")
             .navigationBarTitleDisplayMode(.inline)
@@ -220,6 +277,7 @@ struct AddEditVehicleView: View {
             )
             context.insert(newVehicle)
         }
+        Haptics.success()
         dismiss()
     }
 }

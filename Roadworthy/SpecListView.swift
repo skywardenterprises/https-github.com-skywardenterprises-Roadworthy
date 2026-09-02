@@ -17,9 +17,9 @@ struct SpecListView: View {
         Group {
             if vehicle.specs.isEmpty {
                 ContentUnavailableView(
-                    "No Specs Saved",
-                    systemImage: "list.clipboard",
-                    description: Text("Use the + button to save part numbers and torque specs for quick reference.")
+                    "No Specs Saved Yet",
+                    systemImage: "list.clipboard.fill",
+                    description: Text("Save part numbers and torque specs here so you're never digging through old receipts again.")
                 )
             } else {
                 List {
@@ -163,7 +163,7 @@ struct AddEditSpecView: View {
                 Section {
                     Picker("Category", selection: $category) {
                         ForEach(SpecCategory.allCases) { cat in
-                            Text(cat.rawValue).tag(cat)
+                            Text(cat.displayName).tag(cat)
                         }
                     }
                     Picker("Item", selection: $presetName) {
@@ -269,6 +269,7 @@ struct AddEditSpecView: View {
             newSpec.vehicle = vehicle
             context.insert(newSpec)
         }
+        Haptics.success()
         dismiss()
     }
 
@@ -276,6 +277,7 @@ struct AddEditSpecView: View {
         if let spec {
             context.delete(spec)
         }
+        Haptics.delete()
         dismiss()
     }
 }

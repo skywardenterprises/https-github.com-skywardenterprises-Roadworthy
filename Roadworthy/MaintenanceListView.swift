@@ -14,9 +14,9 @@ struct MaintenanceListView: View {
         Group {
             if sortedRecords.isEmpty {
                 ContentUnavailableView(
-                    "No Maintenance Logged",
-                    systemImage: "wrench.and.screwdriver",
-                    description: Text("Use the + button to log an oil change, tire rotation, etc.")
+                    "No Maintenance Yet",
+                    systemImage: "wrench.and.screwdriver.fill",
+                    description: Text("Oil changes, tire rotations, brake jobs — build your vehicle's service history here.")
                 )
             } else {
                 List {
@@ -91,8 +91,9 @@ struct AddEditMaintenanceView: View {
     @State private var setReminder = false
     @State private var nextDueMileageText = ""
     @State private var nextDueDate = Date.now
-    @State private var showingMileageConflictAlert = false
-    @State private var mileageConflictMessage = ""
+    @State private var showingValidationAlert = false
+    @State private var validationTitle = ""
+    @State private var validationMessage = ""
 
     private var isEditing: Bool { record != nil }
 
@@ -162,10 +163,10 @@ struct AddEditMaintenanceView: View {
                 }
             }
             .onAppear(perform: loadExistingValues)
-            .alert("Mileage Doesn't Add Up", isPresented: $showingMileageConflictAlert) {
+            .alert(validationTitle, isPresented: $showingValidationAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(mileageConflictMessage)
+                Text(validationMessage)
             }
         }
     }
@@ -199,9 +200,24 @@ struct AddEditMaintenanceView: View {
         let cost = Double(costText) ?? 0
         let nextDueMileage = Int(nextDueMileageText) ?? 0
 
+        if isFutureDate(date) {
+            validationTitle = "Date Is In the Future"
+            validationMessage = "This entry is dated \(date.formatted(date: .abbreviated, time: .omitted)), which hasn't happened yet. Please choose today's date or an earlier one before saving."
+            showingValidationAlert = true
+            return
+        }
+
+        if isBeforeManufactureYear(date, vehicleYear: vehicle.year) {
+            validationTitle = "Date Is Before This Vehicle Existed"
+            validationMessage = "This entry is dated \(date.formatted(date: .abbreviated, time: .omitted)), but this vehicle wasn't manufactured until \(vehicle.year). Please choose a date in \(vehicle.year) or later before saving."
+            showingValidationAlert = true
+            return
+        }
+
         if let conflict = vehicle.mileageConflict(forDate: date, mileage: mileage, excludingMaintenanceRecord: record) {
-            mileageConflictMessage = "This entry's mileage (\(mileage.formatted()) mi) is lower than a previous log from \(conflict.date.formatted(date: .abbreviated, time: .omitted)) at \(conflict.mileage.formatted()) mi. Please correct the mileage or the date before saving."
-            showingMileageConflictAlert = true
+            validationTitle = "Mileage Doesn't Add Up"
+            validationMessage = buildMileageConflictMessage(newMileage: mileage, newDate: date, conflict: conflict)
+            showingValidationAlert = true
             return
         }
 
@@ -241,6 +257,7 @@ struct AddEditMaintenanceView: View {
         if mileage > vehicle.currentMileage {
             vehicle.currentMileage = mileage
         }
+        Haptics.success()
         dismiss()
     }
 
@@ -248,6 +265,7 @@ struct AddEditMaintenanceView: View {
         if let record {
             context.delete(record)
         }
+        Haptics.delete()
         dismiss()
     }
 }

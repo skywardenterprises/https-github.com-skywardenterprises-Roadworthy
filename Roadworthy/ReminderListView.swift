@@ -6,13 +6,13 @@ struct ReminderListView: View {
     let vehicle: Vehicle
     @State private var reminderToEdit: MaintenanceReminder?
 
-    // Reminders that are already due show first, then soonest-due next.
+    // Reminders with the least mileage remaining show first (this also
+    // naturally surfaces overdue reminders first, since overdue mileage is
+    // negative). Reminders with no mileage component sort after those, by
+    // days remaining.
     private var sortedReminders: [MaintenanceReminder] {
-        vehicle.reminders.sorted { lhs, rhs in
-            let lhsDue = lhs.isDue(currentMileage: vehicle.currentMileage)
-            let rhsDue = rhs.isDue(currentMileage: vehicle.currentMileage)
-            if lhsDue != rhsDue { return lhsDue && !rhsDue }
-            return (lhs.nextDueDate ?? .distantFuture) < (rhs.nextDueDate ?? .distantFuture)
+        vehicle.reminders.sorted {
+            $0.sortKey(currentMileage: vehicle.currentMileage) < $1.sortKey(currentMileage: vehicle.currentMileage)
         }
     }
 
@@ -20,9 +20,9 @@ struct ReminderListView: View {
         Group {
             if sortedReminders.isEmpty {
                 ContentUnavailableView(
-                    "No Reminders Set",
-                    systemImage: "bell",
-                    description: Text("Use the + button to set up a recurring reminder.")
+                    "No Reminders Yet",
+                    systemImage: "bell.fill",
+                    description: Text("Never miss another oil change or inspection — set a recurring reminder here.")
                 )
             } else {
                 List {
@@ -56,25 +56,25 @@ struct ReminderListView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if reminder.isDue(currentMileage: vehicle.currentMileage) {
-                    Text("Due")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.red))
-                }
+                ReminderStatusBadge(status: reminder.status(currentMileage: vehicle.currentMileage))
             }
             if let nextDueMileage = reminder.nextDueMileage {
-                Text("Every \(reminder.intervalMiles.formatted()) mi — next at \(nextDueMileage.formatted()) mi")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                (
+                    Text("Every \(reminder.intervalMiles.formatted()) mi — next at ")
+                        .foregroundStyle(.secondary)
+                    + Text("\(nextDueMileage.formatted()) mi")
+                        .foregroundStyle(mileageColor(reminder))
+                )
+                .font(.caption)
             }
             if let nextDueDate = reminder.nextDueDate {
-                Text("Every \(reminder.intervalMonths) mo — next on \(nextDueDate.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                (
+                    Text("Every \(reminder.intervalMonths) mo — next on ")
+                        .foregroundStyle(.secondary)
+                    + Text(nextDueDate.formatted(date: .abbreviated, time: .omitted))
+                        .foregroundStyle(dateColor(reminder))
+                )
+                .font(.caption)
             }
             if !reminder.notes.isEmpty {
                 Text(reminder.notes)
@@ -82,6 +82,19 @@ struct ReminderListView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // Mileage number: red once past due, orange within 2 weeks / 1,000 miles
+    // of being due, otherwise the normal secondary color.
+    private func mileageColor(_ reminder: MaintenanceReminder) -> Color {
+        if reminder.isDue(currentMileage: vehicle.currentMileage) { return .red }
+        if reminder.isDueSoon(currentMileage: vehicle.currentMileage) { return .orange }
+        return .secondary
+    }
+
+    // Due date: red once past due, otherwise the normal secondary color.
+    private func dateColor(_ reminder: MaintenanceReminder) -> Color {
+        reminder.isDue(currentMileage: vehicle.currentMileage) ? .red : .secondary
     }
 
     private func deleteReminders(at offsets: IndexSet) {
@@ -278,6 +291,7 @@ struct AddEditReminderView: View {
             ReminderNotificationManager.requestAuthorizationIfNeeded()
         }
         ReminderNotificationManager.schedule(for: savedReminder, vehicleName: vehicle.displayName)
+        Haptics.success()
         dismiss()
     }
 
@@ -288,6 +302,7 @@ struct AddEditReminderView: View {
         reminder.baselineMileage = vehicle.currentMileage
         reminder.baselineDate = .now
         ReminderNotificationManager.schedule(for: reminder, vehicleName: vehicle.displayName)
+        Haptics.success()
         dismiss()
     }
 
@@ -296,6 +311,7 @@ struct AddEditReminderView: View {
             ReminderNotificationManager.cancel(for: reminder)
             context.delete(reminder)
         }
+        Haptics.delete()
         dismiss()
     }
 }

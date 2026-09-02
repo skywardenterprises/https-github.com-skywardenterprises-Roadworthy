@@ -14,9 +14,9 @@ struct DocumentListView: View {
         Group {
             if sortedDocs.isEmpty {
                 ContentUnavailableView(
-                    "No Documents",
-                    systemImage: "doc.text",
-                    description: Text("Use the + button to save photos of registration, insurance cards, receipts, etc.")
+                    "No Documents Yet",
+                    systemImage: "doc.text.fill",
+                    description: Text("Registration, insurance cards, receipts — save photos of anything worth keeping on file.")
                 )
             } else {
                 List {
@@ -92,13 +92,19 @@ struct AddDocumentView: View {
     @State private var notes = ""
     @State private var imageData: Data?
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingPhotoOptions = false
+    @State private var showingCamera = false
+    @State private var showingPhotoLibraryPicker = false
+    @State private var showingPhotoViewer = false
 
     var body: some View {
         NavigationStack {
             Form {
                 TextField("Title (e.g. Registration)", text: $title)
 
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                Button {
+                    showingPhotoOptions = true
+                } label: {
                     HStack {
                         if let imageData, let uiImage = UIImage(data: imageData) {
                             Image(uiImage: uiImage)
@@ -113,10 +119,44 @@ struct AddDocumentView: View {
                         Text(imageData == nil ? "Add Photo" : "Change Photo")
                     }
                 }
+                .foregroundStyle(.primary)
+                .confirmationDialog("Document Photo", isPresented: $showingPhotoOptions, titleVisibility: .visible) {
+                    Button("Take Photo") { showingCamera = true }
+                    Button("Choose from Library") { showingPhotoLibraryPicker = true }
+                    if imageData != nil {
+                        Button("View Photo") { showingPhotoViewer = true }
+                        Button("Remove Photo", role: .destructive) { imageData = nil }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .sheet(isPresented: $showingCamera) {
+                    CameraPicker(imageData: $imageData)
+                        .ignoresSafeArea()
+                }
+                .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
                 .onChange(of: selectedPhoto) { _, newItem in
                     Task {
                         if let data = try? await newItem?.loadTransferable(type: Data.self) {
                             imageData = data
+                        }
+                    }
+                }
+                .sheet(isPresented: $showingPhotoViewer) {
+                    if let imageData, let uiImage = UIImage(data: imageData) {
+                        NavigationStack {
+                            ScrollView {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding()
+                            }
+                            .navigationTitle("Document Photo")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { showingPhotoViewer = false }
+                                }
+                            }
                         }
                     }
                 }
@@ -142,6 +182,7 @@ struct AddDocumentView: View {
         let doc = VehicleDocument(title: title, imageData: imageData, notes: notes)
         doc.vehicle = vehicle
         context.insert(doc)
+        Haptics.success()
         dismiss()
     }
 }

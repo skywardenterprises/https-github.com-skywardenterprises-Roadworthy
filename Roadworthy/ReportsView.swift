@@ -139,6 +139,22 @@ struct ReportsView: View {
         aggregate(pricePoints, by: fuelChartPeriod)
     }
 
+    // Plain-language summaries read aloud by VoiceOver instead of the chart
+    // itself, since exploring individual points on a line chart isn't a
+    // practical way to get the overall trend.
+    private var mpgAccessibilitySummary: String {
+        guard let first = mpgAggregated.first, let last = mpgAggregated.last else { return "No data" }
+        let firstValue = first.value.formatted(.number.precision(.fractionLength(1)))
+        let lastValue = last.value.formatted(.number.precision(.fractionLength(1)))
+        return "\(mpgAggregated.count) data points, ranging from \(firstValue) to \(lastValue) miles per gallon"
+    }
+    private var priceAccessibilitySummary: String {
+        guard let first = priceAggregated.first, let last = priceAggregated.last else { return "No data" }
+        let firstValue = first.value.formatted(.currency(code: "USD"))
+        let lastValue = last.value.formatted(.currency(code: "USD"))
+        return "\(priceAggregated.count) data points, from \(firstValue) to \(lastValue) per gallon"
+    }
+
     // MARK: - Summary totals
 
     private var totalFuelCost: Double { vehicle.fuelLogs.reduce(0) { $0 + $1.totalCost } }
@@ -191,10 +207,14 @@ struct ReportsView: View {
                     Chart(mpgAggregated) { point in
                         LineMark(x: .value("Date", point.date), y: .value("MPG", point.value))
                             .interpolationMethod(.catmullRom)
+                            .foregroundStyle(Color.accentColor)
                         PointMark(x: .value("Date", point.date), y: .value("MPG", point.value))
+                            .foregroundStyle(Color.accentColor)
                     }
                     .frame(height: 180)
                     .padding(.horizontal, 16)
+                    .accessibilityLabel("MPG trend chart")
+                    .accessibilityValue(mpgAccessibilitySummary)
                 }
             }
 
@@ -207,12 +227,14 @@ struct ReportsView: View {
                     Chart(priceAggregated) { point in
                         LineMark(x: .value("Date", point.date), y: .value("Price", point.value))
                             .interpolationMethod(.catmullRom)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.indigo)
                         PointMark(x: .value("Date", point.date), y: .value("Price", point.value))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.indigo)
                     }
                     .frame(height: 180)
                     .padding(.horizontal, 16)
+                    .accessibilityLabel("Cost per gallon trend chart")
+                    .accessibilityValue(priceAccessibilitySummary)
                 }
             }
         }
@@ -241,9 +263,9 @@ struct ReportsView: View {
         let maintenance = vehicle.maintenanceRecords.filter { range.contains($0.date) }.reduce(0) { $0 + $1.cost }
         let expenses = vehicle.expenses.filter { range.contains($0.date) }.reduce(0) { $0 + $1.amount }
         return [
-            ("Fuel", fuel, Color.blue),
-            ("Maintenance", maintenance, Color.orange),
-            ("Expenses", expenses, Color.green)
+            ("Fuel", fuel, Color.accentColor),
+            ("Maintenance", maintenance, Color.indigo),
+            ("Expenses", expenses, Color.pink)
         ]
     }
 
@@ -269,17 +291,20 @@ struct ReportsView: View {
                             .foregroundStyle(item.color)
                     }
                     .frame(width: 140, height: 140)
+                    .accessibilityHidden(true) // the legend to the right already conveys the same data as text
 
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(data, id: \.category) { item in
                             HStack {
                                 Circle().fill(item.color).frame(width: 8, height: 8)
+                                    .accessibilityHidden(true)
                                 Text(item.category).font(.caption)
                                 Spacer()
                                 Text(item.amount.formatted(.currency(code: "USD").precision(.fractionLength(0))))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            .accessibilityElement(children: .combine)
                         }
                     }
                 }
@@ -362,6 +387,8 @@ struct ReportsView: View {
                 }
                 .frame(height: 180)
                 .padding(.horizontal, 16)
+                .accessibilityLabel("Cost per mile by month chart")
+                .accessibilityValue("\(monthlyCostPerMile.count) months of data")
             }
         }
     }
@@ -383,6 +410,7 @@ struct ReportsView: View {
             ? mpgPoints.map { (date: $0.date, value: $0.mpg) }
             : pricePoints
 
+        let rawSeries: [ComparisonSeries]
         switch comparisonPeriod {
         case .month:
             let currentStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
@@ -398,7 +426,7 @@ struct ReportsView: View {
                 let day = calendar.component(.day, from: point.date)
                 series.append(ComparisonSeries(label: "Last Month", index: day, value: point.value))
             }
-            return series
+            rawSeries = series
 
         case .year:
             let currentYear = calendar.component(.year, from: now)
@@ -412,8 +440,20 @@ struct ReportsView: View {
                     series.append(ComparisonSeries(label: "Last Year", index: month, value: point.value))
                 }
             }
-            return series
+            rawSeries = series
         }
+
+        // Average together any points that land on the same day (Month view)
+        // or month (Year view) within the same series — otherwise the line
+        // has to zigzag between multiple points stacked at the same x
+        // position instead of drawing one smooth point per period.
+        let grouped = Dictionary(grouping: rawSeries) { "\($0.label)-\($0.index)" }
+        return grouped.values.compactMap { group in
+            guard let first = group.first else { return nil }
+            let average = group.reduce(0) { $0 + $1.value } / Double(group.count)
+            return ComparisonSeries(label: first.label, index: first.index, value: average)
+        }
+        .sorted { $0.index < $1.index }
     }
 
     private var comparisonSection: some View {
@@ -447,8 +487,15 @@ struct ReportsView: View {
                     .foregroundStyle(by: .value("Period", point.label))
                     .interpolationMethod(.catmullRom)
                 }
+                .chartForegroundStyleScale([
+                    "This Month": Color.accentColor,
+                    "This Year": Color.accentColor,
+                    "Last Month": Color.gray,
+                    "Last Year": Color.gray
+                ])
                 .frame(height: 200)
                 .padding(.horizontal, 16)
+                .accessibilityLabel("\(comparisonMetric.rawValue) comparison chart, \(comparisonPeriod.rawValue)")
             }
         }
     }
@@ -507,6 +554,8 @@ struct ReportsView: View {
                 }
                 .frame(height: 180)
                 .padding(.horizontal, 16)
+                .accessibilityLabel("Business miles by month chart")
+                .accessibilityValue("\(totalBusinessMiles.formatted()) total business miles")
             }
         }
     }

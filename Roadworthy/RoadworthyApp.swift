@@ -33,8 +33,40 @@ struct RoadworthyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            VehicleListView()
+            RootView()
         }
         .modelContainer(modelContainer)
+    }
+}
+
+private struct RootView: View {
+    @State private var showingSplash = true
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var showingOnboarding = false
+
+    var body: some View {
+        ZStack {
+            VehicleListView()
+
+            if showingSplash {
+                SplashScreenView()
+                    .transition(.opacity)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.4)) {
+                showingSplash = false
+            }
+            if !hasCompletedOnboarding {
+                showingOnboarding = true
+            }
+        }
+        .fullScreenCover(isPresented: $showingOnboarding) {
+            OnboardingView(isPresented: $showingOnboarding)
+                .onDisappear {
+                    hasCompletedOnboarding = true
+                }
+        }
     }
 }

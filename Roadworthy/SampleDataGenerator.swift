@@ -2,9 +2,10 @@
 import Foundation
 import SwiftData
 
-/// Generates roughly a year of realistic-looking sample data for a vehicle —
-/// fuel logs, maintenance, expenses, reminders, and trips — so testing with
-/// realistic data volume doesn't require typing in a hundred entries by hand.
+/// Generates roughly two years of realistic-looking sample data for a
+/// vehicle — fuel logs, maintenance, expenses, reminders, and trips — so
+/// testing with realistic data volume (and taking good screenshots of the
+/// Reports feature) doesn't require typing in hundreds of entries by hand.
 ///
 /// This entire file is wrapped in #if DEBUG, so it's automatically excluded
 /// from Release builds (TestFlight, App Store) — it doesn't exist in the
@@ -13,13 +14,13 @@ enum SampleDataGenerator {
     static func generate(for vehicle: Vehicle, context: ModelContext) {
         let calendar = Calendar.current
         let manufactureYearStart = calendar.date(from: DateComponents(year: vehicle.year, month: 1, day: 1)) ?? .now
-        let twelveMonthsAgo = calendar.date(byAdding: .month, value: -12, to: .now) ?? .now
-        let startDate = [twelveMonthsAgo, manufactureYearStart, vehicle.purchaseDate].max() ?? .now
+        let twoYearsAgo = calendar.date(byAdding: .month, value: -24, to: .now) ?? .now
+        let startDate = [twoYearsAgo, manufactureYearStart, vehicle.purchaseDate].max() ?? .now
 
-        var currentMileage = max(0, vehicle.currentMileage - 12000)
+        var currentMileage = max(0, vehicle.currentMileage - 24000)
         var currentDate = startDate
 
-        // MARK: Fuel logs — every ~2 weeks
+        // MARK: Fuel logs — every ~2 weeks, across the full 2-year span
         var checkpoints: [(date: Date, mileage: Int)] = []
         while currentDate < Date.now {
             currentMileage += Int.random(in: 280...420)
@@ -40,10 +41,17 @@ enum SampleDataGenerator {
             currentDate = calendar.date(byAdding: .day, value: Int.random(in: 12...17), to: currentDate) ?? currentDate
         }
 
-        // MARK: Maintenance — spread across the year at realistic mileage points
+        // MARK: Maintenance — 20 entries spread across the 2-year span
         let maintenanceTypes: [MaintenanceType] = [
-            .oilChange, .oilChange, .oilChange, .tireRotation, .tireRotation,
-            .brakes, .battery, .fluids, .inspection, .airFilter
+            .oilChange, .oilChange, .oilChange, .oilChange, .oilChange,
+            .tireRotation, .tireRotation, .tireRotation, .tireRotation,
+            .brakes, .brakes,
+            .battery,
+            .fluids, .fluids,
+            .inspection, .inspection,
+            .airFilter, .airFilter,
+            .tireReplacement,
+            .registration
         ]
         for type in maintenanceTypes {
             guard let point = checkpoints.randomElement() else { continue }
@@ -56,6 +64,8 @@ enum SampleDataGenerator {
             case .fluids: cost = Double.random(in: 60...120)
             case .inspection: cost = Double.random(in: 20...50)
             case .airFilter: cost = Double.random(in: 15...35)
+            case .tireReplacement: cost = Double.random(in: 400...800)
+            case .registration: cost = Double.random(in: 60...150)
             default: cost = Double.random(in: 30...100)
             }
             let record = MaintenanceRecord(
@@ -69,10 +79,14 @@ enum SampleDataGenerator {
             context.insert(record)
         }
 
-        // MARK: Expenses — spread across the year
+        // MARK: Expenses — 30 entries spread across the 2-year span
         let expenseCategories: [ExpenseCategory] = [
-            .insurance, .insurance, .insurance, .parking, .parking,
-            .tolls, .tolls, .carWash, .carWash, .accessories, .fines
+            .insurance, .insurance, .insurance, .insurance, .insurance, .insurance, .insurance, .insurance,
+            .parking, .parking, .parking, .parking, .parking,
+            .tolls, .tolls, .tolls, .tolls, .tolls,
+            .carWash, .carWash, .carWash, .carWash, .carWash,
+            .accessories, .accessories, .accessories, .accessories,
+            .fines, .fines, .fines
         ]
         for category in expenseCategories {
             let daySpan = calendar.dateComponents([.day], from: startDate, to: .now).day ?? 0

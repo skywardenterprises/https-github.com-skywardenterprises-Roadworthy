@@ -38,9 +38,9 @@ struct VehicleListView: View {
             .overlay {
                 if vehicles.isEmpty && inactiveVehicles.isEmpty {
                     ContentUnavailableView(
-                        "No Vehicles Yet",
+                        "Let's Get You On the Road",
                         systemImage: "car.fill",
-                        description: Text("Tap + to add your first vehicle.")
+                        description: Text("Add your first vehicle to start tracking maintenance, fuel, and more.")
                     )
                 }
             }
@@ -52,6 +52,7 @@ struct VehicleListView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add Vehicle")
                 }
             }
             .sheet(isPresented: $showingAddVehicle) {
@@ -78,11 +79,13 @@ struct VehicleRow: View {
                     .scaledToFill()
                     .frame(width: 50, height: 50)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .accessibilityHidden(true)
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.secondary.opacity(0.15))
                     .frame(width: 50, height: 50)
                     .overlay(Image(systemName: vehicle.vehicleType.iconName).foregroundStyle(.secondary))
+                    .accessibilityHidden(true)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -97,6 +100,7 @@ struct VehicleRow: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }
 

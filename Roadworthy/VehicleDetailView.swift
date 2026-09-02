@@ -154,12 +154,16 @@ struct VehicleDetailView: View {
                 .background(Circle().fill(Color.accentColor))
                 .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
         }
+        .accessibilityLabel("Quick Add")
+        .accessibilityHint("Opens a menu to add fuel, maintenance, an expense, a reminder, a document, a spec, or a trip")
         .offset(y: -14)
     }
 }
 
 private struct OverviewTab: View {
     let vehicle: Vehicle
+
+    @State private var isShowingFullPhoto = false
 
     @State private var showingInsuranceCardOptions = false
     @State private var showingInsuranceCamera = false
@@ -174,11 +178,8 @@ private struct OverviewTab: View {
     }
 
     private var sortedReminders: [MaintenanceReminder] {
-        vehicle.reminders.sorted { lhs, rhs in
-            let lhsDue = lhs.isDue(currentMileage: vehicle.currentMileage)
-            let rhsDue = rhs.isDue(currentMileage: vehicle.currentMileage)
-            if lhsDue != rhsDue { return lhsDue && !rhsDue }
-            return (lhs.nextDueDate ?? .distantFuture) < (rhs.nextDueDate ?? .distantFuture)
+        vehicle.reminders.sorted {
+            $0.sortKey(currentMileage: vehicle.currentMileage) < $1.sortKey(currentMileage: vehicle.currentMileage)
         }
     }
 
@@ -212,9 +213,10 @@ private struct OverviewTab: View {
     private let twoColumns = [GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                photoHeader
+        ZStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    photoHeader
 
                 statSection(title: "FUEL ECONOMY") {
                     LazyVGrid(columns: threeColumns, spacing: 10) {
@@ -256,26 +258,26 @@ private struct OverviewTab: View {
                                             .font(.subheadline)
                                             .fontWeight(.medium)
                                         if let dueMileage = reminder.nextDueMileage {
-                                            Text("Every \(reminder.intervalMiles.formatted()) mi — next at \(dueMileage.formatted()) mi")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                            (
+                                                Text("Every \(reminder.intervalMiles.formatted()) mi — next at ")
+                                                    .foregroundStyle(.secondary)
+                                                + Text("\(dueMileage.formatted()) mi")
+                                                    .foregroundStyle(mileageColor(reminder))
+                                            )
+                                            .font(.caption)
                                         }
                                         if let dueDate = reminder.nextDueDate {
-                                            Text("Every \(reminder.intervalMonths) mo — next on \(dueDate.formatted(date: .abbreviated, time: .omitted))")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                            (
+                                                Text("Every \(reminder.intervalMonths) mo — next on ")
+                                                    .foregroundStyle(.secondary)
+                                                + Text(dueDate.formatted(date: .abbreviated, time: .omitted))
+                                                    .foregroundStyle(dateColor(reminder))
+                                            )
+                                            .font(.caption)
                                         }
                                     }
                                     Spacer()
-                                    if reminder.isDue(currentMileage: vehicle.currentMileage) {
-                                        Text("Due")
-                                            .font(.caption)
-                                            .fontWeight(.semibold)
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
-                                            .background(Capsule().fill(Color.red))
-                                    }
+                                    ReminderStatusBadge(status: reminder.status(currentMileage: vehicle.currentMileage))
                                 }
                                 .padding(12)
                                 .background(Color(.secondarySystemGroupedBackground))
@@ -340,11 +342,36 @@ private struct OverviewTab: View {
             .padding(.bottom, 24)
         }
         .background(Color(.systemGroupedBackground))
+
+            if isShowingFullPhoto, let data = vehicle.photoData, let uiImage = UIImage(data: data) {
+                Color.black
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFit()
+                    .padding()
+                    .transition(.opacity)
+            }
+        }
     }
 
     private func formattedMPG(_ value: Double?) -> String {
         guard let value else { return "—" }
         return value.formatted(.number.precision(.fractionLength(1)))
+    }
+
+    // Mileage number: red once past due, orange within 2 weeks / 1,000 miles
+    // of being due, otherwise the normal secondary color.
+    private func mileageColor(_ reminder: MaintenanceReminder) -> Color {
+        if reminder.isDue(currentMileage: vehicle.currentMileage) { return .red }
+        if reminder.isDueSoon(currentMileage: vehicle.currentMileage) { return .orange }
+        return .secondary
+    }
+
+    // Due date: red once past due, otherwise the normal secondary color.
+    private func dateColor(_ reminder: MaintenanceReminder) -> Color {
+        reminder.isDue(currentMileage: vehicle.currentMileage) ? .red : .secondary
     }
 
     @ViewBuilder
@@ -375,6 +402,14 @@ private struct OverviewTab: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
+        }
+        .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 50) {
+            // no-op: the "pressing" closure below does all the work
+        } onPressingChanged: { pressing in
+            guard vehicle.photoData != nil else { return }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isShowingFullPhoto = pressing
+            }
         }
     }
 
@@ -410,12 +445,15 @@ private struct OverviewTab: View {
                     Image(systemName: "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
                 content()
             }
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens the full \(title.lowercased()) list")
     }
 
     private func statCard(value: String, label: String) -> some View {
@@ -459,6 +497,7 @@ private struct OverviewTab: View {
                         .scaledToFill()
                         .frame(width: 44, height: 30)
                         .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .accessibilityHidden(true)
                 } else {
                     Text("Add")
                         .foregroundStyle(.primary)
@@ -466,11 +505,15 @@ private struct OverviewTab: View {
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(vehicle.insuranceCardData != nil ? "Insurance Card, added" : "Insurance Card, not added")
+        .accessibilityHint("Opens options to take or choose a photo")
         .confirmationDialog("Insurance Card", isPresented: $showingInsuranceCardOptions, titleVisibility: .visible) {
             Button("Take Photo") { showingInsuranceCamera = true }
             Button("Choose from Library") { showingInsurancePhotoPicker = true }

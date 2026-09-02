@@ -14,9 +14,9 @@ struct ExpenseListView: View {
         Group {
             if sortedExpenses.isEmpty {
                 ContentUnavailableView(
-                    "No Expenses Logged",
-                    systemImage: "dollarsign.circle",
-                    description: Text("Use the + button to log insurance, parking, tolls, etc.")
+                    "No Expenses Yet",
+                    systemImage: "dollarsign.circle.fill",
+                    description: Text("Insurance, parking, tolls — the little costs add up. Log them here to see the full picture.")
                 )
             } else {
                 List {
@@ -149,6 +149,7 @@ struct AddEditExpenseView: View {
             newExpense.vehicle = vehicle
             context.insert(newExpense)
         }
+        Haptics.success()
         dismiss()
     }
 
@@ -156,6 +157,7 @@ struct AddEditExpenseView: View {
         if let expense {
             context.delete(expense)
         }
+        Haptics.delete()
         dismiss()
     }
 }

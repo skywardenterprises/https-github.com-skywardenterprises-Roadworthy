@@ -26,9 +26,9 @@ struct TripListView: View {
         Group {
             if sortedTrips.isEmpty {
                 ContentUnavailableView(
-                    "No Trips Logged",
-                    systemImage: "map",
-                    description: Text("Use the + button to log a business, personal, or commuting trip.")
+                    "No Trips Yet",
+                    systemImage: "map.fill",
+                    description: Text("Business, personal, or commuting — log a trip here to start tracking your mileage.")
                 )
             } else {
                 List {
@@ -264,6 +264,7 @@ struct AddEditTripView: View {
         if end > vehicle.currentMileage {
             vehicle.currentMileage = end
         }
+        Haptics.success()
         dismiss()
     }
 
@@ -271,6 +272,7 @@ struct AddEditTripView: View {
         if let trip {
             context.delete(trip)
         }
+        Haptics.delete()
         dismiss()
     }
 }

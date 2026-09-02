@@ -28,8 +28,8 @@ struct InactiveVehiclesView: View {
             if vehicles.isEmpty {
                 ContentUnavailableView(
                     "No Inactive Vehicles",
-                    systemImage: "archivebox",
-                    description: Text("Vehicles you mark as sold or inactive will appear here, with their full history kept intact.")
+                    systemImage: "archivebox.fill",
+                    description: Text("Vehicles you mark as sold or retired will land here, with their full history kept safe.")
                 )
             }
         }
