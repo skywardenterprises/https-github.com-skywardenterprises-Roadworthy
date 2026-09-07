@@ -15,8 +15,8 @@ enum DistanceUnit: String, CaseIterable, Identifiable {
     }
 }
 
-private let milesPerKilometer = 0.621371
-private let kilometersPerMile = 1.60934
+nonisolated private let milesPerKilometer = 0.621371
+nonisolated private let kilometersPerMile = 1.60934
 
 /// Converts a value already stored in miles into the person's preferred
 /// unit, for display.

@@ -30,6 +30,7 @@ private enum ComparisonMetric: String, CaseIterable, Identifiable {
 
 struct ReportsView: View {
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     @State private var fuelChartPeriod: ChartPeriod = .fillUp
     @State private var breakdownRange: BreakdownRange = .allTime
@@ -62,18 +63,10 @@ struct ReportsView: View {
         let mpg: Double
     }
 
-    // MPG per fill-up, calculated from the gap between consecutive full-tank fill-ups.
+    // Excludes implausible intervals so one bad data point can't distort
+    // the MPG charts — see MPGCalculator for details.
     private var mpgPoints: [MPGPoint] {
-        let fullTankLogs = vehicle.fuelLogs.filter { $0.isFullTank }.sorted { $0.mileage < $1.mileage }
-        guard fullTankLogs.count >= 2 else { return [] }
-        var points: [MPGPoint] = []
-        for i in 1..<fullTankLogs.count {
-            let milesDriven = Double(fullTankLogs[i].mileage - fullTankLogs[i - 1].mileage)
-            let gallonsUsed = fullTankLogs[i].gallons
-            guard gallonsUsed > 0, milesDriven > 0 else { continue }
-            points.append(MPGPoint(date: fullTankLogs[i].date, mpg: milesDriven / gallonsUsed))
-        }
-        return points
+        MPGCalculator.plausibleIntervals(for: vehicle.fuelLogs).map { MPGPoint(date: $0.endLog.date, mpg: $0.mpg) }
     }
 
     private var pricePoints: [(date: Date, value: Double)] {
@@ -163,8 +156,9 @@ struct ReportsView: View {
     private var totalSpend: Double { totalFuelCost + totalMaintenanceCost + totalExpenseCost }
 
     private var overallCostPerMile: Double? {
-        guard vehicle.currentMileage > 0 else { return nil }
-        return totalSpend / Double(vehicle.currentMileage)
+        let distance = convertFromMiles(vehicle.currentMileage, to: distanceUnit)
+        guard distance > 0 else { return nil }
+        return totalSpend / Double(distance)
     }
     private var overallAverageMPG: Double? {
         guard !mpgPoints.isEmpty else { return nil }
@@ -178,7 +172,7 @@ struct ReportsView: View {
             sectionTitle("SUMMARY")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 statCard(value: overallAverageMPG.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—", label: "AVG MPG")
-                statCard(value: overallCostPerMile.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(2))) } ?? "—", label: "COST / MILE")
+                statCard(value: overallCostPerMile.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(2))) } ?? "—", label: "COST / \(distanceUnit.rawValue.uppercased())")
                 statCard(value: totalSpend.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "TOTAL SPEND")
             }
             .padding(.horizontal, 16)
@@ -366,14 +360,16 @@ struct ReportsView: View {
                   let startMileage = mileageAtOrBefore(monthStart.addingTimeInterval(-1)),
                   endMileage > startMileage else { continue }
             let miles = endMileage - startMileage
-            results.append(MonthCostPerMile(monthStart: monthStart, costPerMile: spend / Double(miles)))
+            let distance = convertFromMiles(miles, to: distanceUnit)
+            guard distance > 0 else { continue }
+            results.append(MonthCostPerMile(monthStart: monthStart, costPerMile: spend / Double(distance)))
         }
         return results
     }
 
     private var costPerMileSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("COST PER MILE (MONTHLY)")
+            sectionTitle("COST PER \(distanceUnit.rawValue.uppercased()) (MONTHLY)")
             if monthlyCostPerMile.isEmpty {
                 emptyChartPlaceholder("Log fill-ups or maintenance across at least two different months to see this trend.")
                     .padding(.horizontal, 16)
@@ -381,13 +377,13 @@ struct ReportsView: View {
                 Chart(monthlyCostPerMile) { point in
                     BarMark(
                         x: .value("Month", point.monthStart, unit: .month),
-                        y: .value("Cost/Mile", point.costPerMile)
+                        y: .value("Cost", point.costPerMile)
                     )
                     .foregroundStyle(Color.accentColor)
                 }
                 .frame(height: 180)
                 .padding(.horizontal, 16)
-                .accessibilityLabel("Cost per mile by month chart")
+                .accessibilityLabel("Cost per \(distanceUnit.displayName.lowercased()) by month chart")
                 .accessibilityValue("\(monthlyCostPerMile.count) months of data")
             }
         }
@@ -580,8 +576,9 @@ struct ReportsView: View {
         return netCost / Double(monthsOwned)
     }
     private var costPerMileOwned: Double? {
-        guard let netCost = netCostOfOwnership, vehicle.currentMileage > 0 else { return nil }
-        return netCost / Double(vehicle.currentMileage)
+        let distance = convertFromMiles(vehicle.currentMileage, to: distanceUnit)
+        guard let netCost = netCostOfOwnership, distance > 0 else { return nil }
+        return netCost / Double(distance)
     }
 
     private var ownershipSection: some View {
@@ -612,7 +609,7 @@ struct ReportsView: View {
                     )
                     statCard(
                         value: costPerMileOwned.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(2))) } ?? "—",
-                        label: "COST / MILE OWNED"
+                        label: "COST / \(distanceUnit.rawValue.uppercased()) OWNED"
                     )
                 }
                 .padding(.horizontal, 16)

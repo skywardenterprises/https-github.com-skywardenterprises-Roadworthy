@@ -5,6 +5,7 @@ import PhotosUI
 struct AddEditVehicleView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     // If editing an existing vehicle, pass it in. Nil means "creating new".
     var vehicle: Vehicle?
@@ -135,7 +136,7 @@ struct AddEditVehicleView: View {
                             licensePlate = newValue.uppercased()
                         }
                     HStack {
-                        Text("Current Mileage")
+                        Text("Current Mileage (\(distanceUnit.rawValue))")
                         Spacer()
                         TextField("Mileage", text: $mileageText)
                             .keyboardType(.numberPad)
@@ -214,7 +215,7 @@ struct AddEditVehicleView: View {
         year = vehicle.year
         vin = vehicle.vin
         licensePlate = vehicle.licensePlate
-        mileageText = vehicle.currentMileage == 0 ? "" : vehicle.currentMileage.formatted()
+        mileageText = vehicle.currentMileage == 0 ? "" : convertFromMiles(vehicle.currentMileage, to: distanceUnit).formatted()
         purchaseDate = vehicle.purchaseDate
         photoData = vehicle.photoData
         isActive = vehicle.isActive
@@ -224,7 +225,8 @@ struct AddEditVehicleView: View {
     }
 
     private func save() {
-        let currentMileage = Int(mileageText.filter(\.isNumber)) ?? 0
+        let enteredValue = Int(mileageText.filter(\.isNumber)) ?? 0
+        let currentMileage = convertToMiles(enteredValue, from: distanceUnit)
         let purchasePrice = Double(purchasePriceText) ?? 0
         let currentValue = currentValueText.isEmpty ? nil : Double(currentValueText)
 

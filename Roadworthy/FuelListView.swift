@@ -4,26 +4,23 @@ import SwiftData
 struct FuelListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
     @State private var logToEdit: FuelLog?
 
     private var sortedLogs: [FuelLog] {
         vehicle.fuelLogs.sorted { $0.date > $1.date }
     }
 
-    // Simple average MPG: (last mileage - first mileage) / total gallons, for full-tank fill-ups.
+    // Average of every plausible full-tank-to-full-tank interval — kept
+    // consistent with the Overview screen's calculation. Implausible
+    // intervals (a typo, a missed fill-up, etc.) are excluded here and
+    // surfaced separately in the Data Quality section below instead.
     private var averageMPG: Double? {
-        let fullTankLogs = vehicle.fuelLogs
-            .filter { $0.isFullTank }
-            .sorted { $0.mileage < $1.mileage }
-        guard fullTankLogs.count >= 2,
-              let first = fullTankLogs.first,
-              let last = fullTankLogs.last,
-              last.mileage > first.mileage else { return nil }
-
-        let totalMiles = Double(last.mileage - first.mileage)
-        let totalGallons = fullTankLogs.dropFirst().reduce(0) { $0 + $1.gallons }
-        guard totalGallons > 0 else { return nil }
-        return totalMiles / totalGallons
+        let plausible = MPGCalculator.plausibleIntervals(for: vehicle.fuelLogs).map(\.mpg)
+        return plausible.isEmpty ? nil : plausible.reduce(0, +) / Double(plausible.count)
+    }
+    private var flaggedIntervals: [MPGInterval] {
+        MPGCalculator.flaggedIntervals(for: vehicle.fuelLogs)
     }
 
     var body: some View {
@@ -39,6 +36,28 @@ struct FuelListView: View {
                     if let averageMPG {
                         Section {
                             LabeledContent("Average MPG", value: averageMPG.formatted(.number.precision(.fractionLength(1))))
+                        }
+                    }
+                    if !flaggedIntervals.isEmpty {
+                        Section {
+                            ForEach(flaggedIntervals) { interval in
+                                Button {
+                                    logToEdit = interval.endLog
+                                } label: {
+                                    flaggedIntervalRow(interval)
+                                }
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button("Ignore") {
+                                        ignoreInterval(interval)
+                                    }
+                                    .tint(.secondary)
+                                }
+                            }
+                        } header: {
+                            Text("Data Quality")
+                        } footer: {
+                            Text("These intervals calculated an unrealistic MPG, usually from a typo, a missed fill-up, or a fill-up marked full/partial incorrectly. Tap one to fix it, or swipe to ignore the warning — they're excluded from Average MPG either way.")
                         }
                     }
                     Section {
@@ -61,6 +80,22 @@ struct FuelListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $logToEdit) { log in
             AddEditFuelView(vehicle: vehicle, log: log)
+        }
+    }
+
+    private func flaggedIntervalRow(_ interval: MPGInterval) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(interval.mpg.formatted(.number.precision(.fractionLength(1)))) MPG calculated")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+            }
+            Text("\(interval.startLog.date.formatted(date: .abbreviated, time: .omitted)) → \(interval.endLog.date.formatted(date: .abbreviated, time: .omitted))  •  \(interval.milesDriven.formatted()) mi on \(interval.gallonsUsed.formatted(.number.precision(.fractionLength(1)))) gal")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -90,7 +125,7 @@ struct FuelListView: View {
             HStack {
                 Text(log.date.formatted(date: .abbreviated, time: .omitted))
                 Text("•")
-                Text("\(log.mileage.formatted()) mi")
+                Text(formattedDistance(log.mileage, unit: distanceUnit))
                 Text("•")
                 Text("\(log.pricePerGallon, format: .currency(code: "USD"))/gal")
                 if !log.isFullTank {
@@ -107,6 +142,11 @@ struct FuelListView: View {
         }
     }
 
+    private func ignoreInterval(_ interval: MPGInterval) {
+        interval.endLog.mpgWarningIgnored = true
+        Haptics.tap()
+    }
+
     private func deleteLogs(at offsets: IndexSet) {
         for index in offsets {
             context.delete(sortedLogs[index])
@@ -118,6 +158,7 @@ struct AddEditFuelView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     // If editing an existing log, pass it in. Nil means "creating new".
     var log: FuelLog?
@@ -149,7 +190,7 @@ struct AddEditFuelView: View {
                 Section {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     HStack {
-                        Text("Odometer")
+                        Text("Odometer (\(distanceUnit.rawValue))")
                         Spacer()
                         TextField("Odometer", text: $mileageText)
                             .keyboardType(.numberPad)
@@ -262,7 +303,7 @@ struct AddEditFuelView: View {
     private func loadExistingValues() {
         guard let log else { return }
         date = log.date
-        mileageText = log.mileage == 0 ? "" : String(log.mileage)
+        mileageText = log.mileage == 0 ? "" : String(convertFromMiles(log.mileage, to: distanceUnit))
         fuelGrade = log.fuelGrade
         gallonsText = log.gallons == 0 ? "" : String(log.gallons)
         priceText = log.pricePerGallon == 0 ? "" : String(log.pricePerGallon)
@@ -277,7 +318,7 @@ struct AddEditFuelView: View {
     }
 
     private func save() {
-        let mileage = Int(mileageText) ?? 0
+        let mileage = convertToMiles(Int(mileageText) ?? 0, from: distanceUnit)
         let totalCost = Double(totalCostText) ?? (gallonsValue * priceValue)
         let defAmount = defAdded ? (Double(defAmountText) ?? 0) : 0
 

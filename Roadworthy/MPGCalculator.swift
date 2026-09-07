@@ -51,17 +51,51 @@ enum MPGCalculator {
         return results
     }
 
-    /// Only the intervals that fall within a realistic MPG range — this is
-    /// what Average/Last/Best MPG and the Reports charts should actually
-    /// use, so one bad data point can't silently distort them.
-    static func plausibleIntervals(for fuelLogs: [FuelLog]) -> [MPGInterval] {
-        intervals(for: fuelLogs).filter(\.isPlausible)
+    /// Splits every interval into "plausible" and "flagged," in one pass —
+    /// this uses two layers of checking:
+    /// 1. A universal sanity range (8-75 MPG) that catches wildly broken
+    ///    values regardless of vehicle.
+    /// 2. A check against THIS vehicle's own typical MPG — since a value
+    ///    can be realistic for cars in general (like 40 or 65 MPG) while
+    ///    still being impossible for one specific vehicle (like a V6 SUV
+    ///    that has never once actually gotten close to that on any other
+    ///    fill-up). An interval more than 75% above, or 50% below, this
+    ///    vehicle's own median gets flagged even if it's within the
+    ///    universal range.
+    private static func classify(for fuelLogs: [FuelLog]) -> (plausible: [MPGInterval], flagged: [MPGInterval]) {
+        let all = intervals(for: fuelLogs)
+        let withinUniversalRange = all.filter(\.isPlausible)
+        let outsideUniversalRange = all.filter { !$0.isPlausible }
+
+        // Not enough data yet to establish what's "typical" for this
+        // vehicle — fall back to the universal range alone.
+        guard withinUniversalRange.count >= 3 else {
+            return (withinUniversalRange, outsideUniversalRange)
+        }
+
+        let sortedMPGs = withinUniversalRange.map(\.mpg).sorted()
+        let median = sortedMPGs[sortedMPGs.count / 2]
+        let lowerBound = median * 0.5
+        let upperBound = median * 1.75
+
+        let plausible = withinUniversalRange.filter { $0.mpg >= lowerBound && $0.mpg <= upperBound }
+        let relativeOutliers = withinUniversalRange.filter { $0.mpg < lowerBound || $0.mpg > upperBound }
+
+        return (plausible, outsideUniversalRange + relativeOutliers)
     }
 
-    /// The intervals that got excluded for being implausible — surfaced to
-    /// the person so they can actually go fix the underlying entry instead
-    /// of the bad data just silently disappearing.
+    /// Only the intervals that are plausible both universally and for this
+    /// specific vehicle — this is what Average/Last/Best MPG and the
+    /// Reports charts should actually use, so one bad data point can't
+    /// silently distort them.
+    static func plausibleIntervals(for fuelLogs: [FuelLog]) -> [MPGInterval] {
+        classify(for: fuelLogs).plausible
+    }
+
+    /// The intervals that got excluded — surfaced to the person so they can
+    /// actually go fix the underlying entry instead of the bad data just
+    /// silently disappearing. Excludes anything already marked ignored.
     static func flaggedIntervals(for fuelLogs: [FuelLog]) -> [MPGInterval] {
-        intervals(for: fuelLogs).filter { !$0.isPlausible }
+        classify(for: fuelLogs).flagged.filter { !$0.endLog.mpgWarningIgnored }
     }
 }

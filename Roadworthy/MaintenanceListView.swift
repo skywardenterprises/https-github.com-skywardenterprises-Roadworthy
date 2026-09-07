@@ -4,6 +4,7 @@ import SwiftData
 struct MaintenanceListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
     @State private var recordToEdit: MaintenanceRecord?
 
     private var sortedRecords: [MaintenanceRecord] {
@@ -39,7 +40,7 @@ struct MaintenanceListView: View {
                                 HStack {
                                     Text(record.date.formatted(date: .abbreviated, time: .omitted))
                                     Text("•")
-                                    Text("\(record.mileage.formatted()) mi")
+                                    Text(formattedDistance(record.mileage, unit: distanceUnit))
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -76,6 +77,7 @@ struct AddEditMaintenanceView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     // If editing an existing record, pass it in. Nil means "creating new".
     var record: MaintenanceRecord?
@@ -112,7 +114,7 @@ struct AddEditMaintenanceView: View {
                     TextField("Title (optional)", text: $title)
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     HStack {
-                        Text("Mileage")
+                        Text("Mileage (\(distanceUnit.rawValue))")
                         Spacer()
                         TextField("Mileage", text: $mileageText)
                             .keyboardType(.numberPad)
@@ -134,7 +136,7 @@ struct AddEditMaintenanceView: View {
                     if setReminder {
                         DatePicker("Next Due Date", selection: $nextDueDate, displayedComponents: .date)
                         HStack {
-                            Text("Next Due Mileage")
+                            Text("Next Due Mileage (\(distanceUnit.rawValue))")
                             Spacer()
                             TextField("Mileage", text: $nextDueMileageText)
                                 .keyboardType(.numberPad)
@@ -176,13 +178,13 @@ struct AddEditMaintenanceView: View {
         type = record.type
         title = record.title
         date = record.date
-        mileageText = record.mileage == 0 ? "" : String(record.mileage)
+        mileageText = record.mileage == 0 ? "" : String(convertFromMiles(record.mileage, to: distanceUnit))
         costText = record.cost == 0 ? "" : String(record.cost)
         notes = record.notes
         receiptPhotoData = record.receiptPhotoData
         if let dueMileage = record.nextDueMileage {
             setReminder = true
-            nextDueMileageText = String(dueMileage)
+            nextDueMileageText = String(convertFromMiles(dueMileage, to: distanceUnit))
         }
         if let dueDate = record.nextDueDate {
             setReminder = true
@@ -196,9 +198,9 @@ struct AddEditMaintenanceView: View {
     }
 
     private func save() {
-        let mileage = Int(mileageText) ?? 0
+        let mileage = convertToMiles(Int(mileageText) ?? 0, from: distanceUnit)
         let cost = Double(costText) ?? 0
-        let nextDueMileage = Int(nextDueMileageText) ?? 0
+        let nextDueMileage = convertToMiles(Int(nextDueMileageText) ?? 0, from: distanceUnit)
 
         if isFutureDate(date) {
             validationTitle = "Date Is In the Future"

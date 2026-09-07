@@ -75,16 +75,14 @@ struct VehicleDetailView: View {
     private var customBottomBar: some View {
         HStack {
             tabBarButton(title: "Overview", systemImage: vehicle.vehicleType.iconName, tab: .overview)
-
-            Spacer()
+                .frame(maxWidth: .infinity)
 
             quickAddMenu
 
-            Spacer()
-
             tabBarButton(title: "Vehicle Logs", systemImage: "list.bullet.rectangle.fill", tab: .logs)
+                .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 36)
+        .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 6)
         .background(.bar)
@@ -156,12 +154,12 @@ struct VehicleDetailView: View {
         }
         .accessibilityLabel("Quick Add")
         .accessibilityHint("Opens a menu to add fuel, maintenance, an expense, a reminder, a document, a spec, or a trip")
-        .offset(y: -14)
     }
 }
 
 private struct OverviewTab: View {
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     @State private var isShowingFullPhoto = false
 
@@ -183,20 +181,10 @@ private struct OverviewTab: View {
         }
     }
 
-    // MPG is calculated from the gap between consecutive full-tank fill-ups.
+    // Excludes implausible intervals (a typo, a missed fill-up, etc.) so one
+    // bad data point can't silently distort Average/Last/Best MPG.
     private var mpgIntervals: [Double] {
-        let fullTankLogs = vehicle.fuelLogs
-            .filter { $0.isFullTank }
-            .sorted { $0.mileage < $1.mileage }
-        guard fullTankLogs.count >= 2 else { return [] }
-        var intervals: [Double] = []
-        for i in 1..<fullTankLogs.count {
-            let milesDriven = Double(fullTankLogs[i].mileage - fullTankLogs[i - 1].mileage)
-            let gallonsUsed = fullTankLogs[i].gallons
-            guard gallonsUsed > 0, milesDriven > 0 else { continue }
-            intervals.append(milesDriven / gallonsUsed)
-        }
-        return intervals
+        MPGCalculator.plausibleIntervals(for: vehicle.fuelLogs).map(\.mpg)
     }
     private var averageMPG: Double? {
         mpgIntervals.isEmpty ? nil : mpgIntervals.reduce(0, +) / Double(mpgIntervals.count)
@@ -258,22 +246,14 @@ private struct OverviewTab: View {
                                             .font(.subheadline)
                                             .fontWeight(.medium)
                                         if let dueMileage = reminder.nextDueMileage {
-                                            (
-                                                Text("Every \(reminder.intervalMiles.formatted()) mi — next at ")
-                                                    .foregroundStyle(.secondary)
-                                                + Text("\(dueMileage.formatted()) mi")
-                                                    .foregroundStyle(mileageColor(reminder))
-                                            )
-                                            .font(.caption)
+                                            Text("Every \(convertFromMiles(reminder.intervalMiles, to: distanceUnit).formatted()) \(distanceUnit.rawValue) — next at \(Text(formattedDistance(dueMileage, unit: distanceUnit)).foregroundStyle(mileageColor(reminder)))")
+                                                .foregroundStyle(.secondary)
+                                                .font(.caption)
                                         }
                                         if let dueDate = reminder.nextDueDate {
-                                            (
-                                                Text("Every \(reminder.intervalMonths) mo — next on ")
-                                                    .foregroundStyle(.secondary)
-                                                + Text(dueDate.formatted(date: .abbreviated, time: .omitted))
-                                                    .foregroundStyle(dateColor(reminder))
-                                            )
-                                            .font(.caption)
+                                            Text("Every \(reminder.intervalMonths) mo — next on \(Text(dueDate.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(dateColor(reminder)))")
+                                                .foregroundStyle(.secondary)
+                                                .font(.caption)
                                         }
                                     }
                                     Spacer()
@@ -293,7 +273,7 @@ private struct OverviewTab: View {
                         Divider().padding(.leading, 12)
                         infoRow("Year/Make/Model", "\(vehicle.year) \(vehicle.make) \(vehicle.model)")
                         Divider().padding(.leading, 12)
-                        infoRow("Mileage", "\(vehicle.currentMileage.formatted()) mi")
+                        infoRow("Mileage", formattedDistance(vehicle.currentMileage, unit: distanceUnit))
                         if !vehicle.vin.isEmpty {
                             Divider().padding(.leading, 12)
                             infoRow("VIN", vehicle.vin)

@@ -4,6 +4,7 @@ import SwiftData
 struct ReminderListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
     @State private var reminderToEdit: MaintenanceReminder?
 
     // Reminders with the least mileage remaining show first (this also
@@ -59,22 +60,14 @@ struct ReminderListView: View {
                 ReminderStatusBadge(status: reminder.status(currentMileage: vehicle.currentMileage))
             }
             if let nextDueMileage = reminder.nextDueMileage {
-                (
-                    Text("Every \(reminder.intervalMiles.formatted()) mi — next at ")
-                        .foregroundStyle(.secondary)
-                    + Text("\(nextDueMileage.formatted()) mi")
-                        .foregroundStyle(mileageColor(reminder))
-                )
-                .font(.caption)
+                Text("Every \(convertFromMiles(reminder.intervalMiles, to: distanceUnit).formatted()) \(distanceUnit.rawValue) — next at \(Text(formattedDistance(nextDueMileage, unit: distanceUnit)).foregroundStyle(mileageColor(reminder)))")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
             }
             if let nextDueDate = reminder.nextDueDate {
-                (
-                    Text("Every \(reminder.intervalMonths) mo — next on ")
-                        .foregroundStyle(.secondary)
-                    + Text(nextDueDate.formatted(date: .abbreviated, time: .omitted))
-                        .foregroundStyle(dateColor(reminder))
-                )
-                .font(.caption)
+                Text("Every \(reminder.intervalMonths) mo — next on \(Text(nextDueDate.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(dateColor(reminder)))")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
             }
             if !reminder.notes.isEmpty {
                 Text(reminder.notes)
@@ -110,6 +103,7 @@ struct AddEditReminderView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     // If editing an existing reminder, pass it in. Nil means "creating new".
     var reminder: MaintenanceReminder?
@@ -146,16 +140,16 @@ struct AddEditReminderView: View {
                     TextField("Notes", text: $notes, axis: .vertical)
                 }
 
-                Section("Repeat By Mileage") {
-                    Toggle("Repeat Every X Miles", isOn: $repeatByMileage)
+                Section("Repeat By \(distanceUnit.displayName)") {
+                    Toggle("Repeat Every X \(distanceUnit.displayName)", isOn: $repeatByMileage)
                     if repeatByMileage {
                         HStack {
                             Text("Every")
                             Spacer()
-                            TextField("Miles", text: $intervalMilesText)
+                            TextField(distanceUnit.displayName, text: $intervalMilesText)
                                 .keyboardType(.numberPad)
                                 .multilineTextAlignment(.trailing)
-                            Text("mi")
+                            Text(distanceUnit.rawValue)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -234,7 +228,7 @@ struct AddEditReminderView: View {
         title = reminder.title
         notes = reminder.notes
         repeatByMileage = reminder.repeatByMileage
-        intervalMilesText = reminder.intervalMiles == 0 ? "" : String(reminder.intervalMiles)
+        intervalMilesText = reminder.intervalMiles == 0 ? "" : String(convertFromMiles(reminder.intervalMiles, to: distanceUnit))
         repeatByDate = reminder.repeatByDate
         intervalMonthsText = reminder.intervalMonths == 0 ? "" : String(reminder.intervalMonths)
         notificationsEnabled = reminder.notificationsEnabled
@@ -245,7 +239,7 @@ struct AddEditReminderView: View {
     }
 
     private func save() {
-        let intervalMiles = Int(intervalMilesText) ?? 0
+        let intervalMiles = convertToMiles(Int(intervalMilesText) ?? 0, from: distanceUnit)
         let intervalMonths = Int(intervalMonthsText) ?? 0
 
         var finalTitle = title

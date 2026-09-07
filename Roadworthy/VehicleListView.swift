@@ -8,6 +8,7 @@ struct VehicleListView: View {
     @Query(filter: #Predicate<Vehicle> { $0.isActive == false }, sort: \Vehicle.nickname)
     private var inactiveVehicles: [Vehicle]
     @State private var showingAddVehicle = false
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -46,6 +47,14 @@ struct VehicleListView: View {
             }
             .navigationTitle("Roadworthy")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingAddVehicle = true
@@ -57,6 +66,9 @@ struct VehicleListView: View {
             }
             .sheet(isPresented: $showingAddVehicle) {
                 AddEditVehicleView(vehicle: nil)
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
         }
     }
@@ -70,6 +82,7 @@ struct VehicleListView: View {
 
 struct VehicleRow: View {
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     var body: some View {
         HStack(spacing: 12) {
@@ -94,7 +107,7 @@ struct VehicleRow: View {
                 Text(String(vehicle.year) + " " + vehicle.make + " " + vehicle.model)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text("\(vehicle.currentMileage.formatted()) mi")
+                Text(formattedDistance(vehicle.currentMileage, unit: distanceUnit))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

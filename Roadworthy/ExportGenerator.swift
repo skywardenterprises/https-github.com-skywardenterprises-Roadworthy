@@ -30,26 +30,26 @@ enum ExportGenerator {
 
     // MARK: - Public entry points
 
-    static func maintenanceHistoryPDF(vehicle: Vehicle) -> Data {
+    static func maintenanceHistoryPDF(vehicle: Vehicle, unit: DistanceUnit) -> Data {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
         return renderer.pdfData { ctx in
             var cursor: CGFloat = 0
-            beginPage(ctx, title: "Maintenance History", vehicle: vehicle, cursor: &cursor)
-            drawMaintenanceSection(ctx, vehicle: vehicle, pageTitle: "Maintenance History", cursor: &cursor, includeSectionHeader: false)
+            beginPage(ctx, title: "Maintenance History", vehicle: vehicle, unit: unit, cursor: &cursor)
+            drawMaintenanceSection(ctx, vehicle: vehicle, unit: unit, pageTitle: "Maintenance History", cursor: &cursor, includeSectionHeader: false)
         }
     }
 
-    static func fullVehicleHistoryPDF(vehicle: Vehicle) -> Data {
+    static func fullVehicleHistoryPDF(vehicle: Vehicle, unit: DistanceUnit) -> Data {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
         return renderer.pdfData { ctx in
             var cursor: CGFloat = 0
-            beginPage(ctx, title: "Vehicle History Report", vehicle: vehicle, cursor: &cursor)
+            beginPage(ctx, title: "Vehicle History Report", vehicle: vehicle, unit: unit, cursor: &cursor)
 
-            drawVehicleInfoSection(vehicle: vehicle, cursor: &cursor)
-            drawMaintenanceSection(ctx, vehicle: vehicle, pageTitle: "Vehicle History Report", cursor: &cursor, includeSectionHeader: true)
-            drawFuelSection(ctx, vehicle: vehicle, pageTitle: "Vehicle History Report", cursor: &cursor)
+            drawVehicleInfoSection(vehicle: vehicle, unit: unit, cursor: &cursor)
+            drawMaintenanceSection(ctx, vehicle: vehicle, unit: unit, pageTitle: "Vehicle History Report", cursor: &cursor, includeSectionHeader: true)
+            drawFuelSection(ctx, vehicle: vehicle, unit: unit, pageTitle: "Vehicle History Report", cursor: &cursor)
             drawExpenseSection(ctx, vehicle: vehicle, pageTitle: "Vehicle History Report", cursor: &cursor)
-            drawReminderSection(ctx, vehicle: vehicle, pageTitle: "Vehicle History Report", cursor: &cursor)
+            drawReminderSection(ctx, vehicle: vehicle, unit: unit, pageTitle: "Vehicle History Report", cursor: &cursor)
             drawSpecsSection(ctx, vehicle: vehicle, pageTitle: "Vehicle History Report", cursor: &cursor)
         }
     }
@@ -58,19 +58,19 @@ enum ExportGenerator {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
         return renderer.pdfData { ctx in
             var cursor: CGFloat = 0
-            beginPage(ctx, title: "Business Mileage Log", vehicle: vehicle, cursor: &cursor)
+            beginPage(ctx, title: "Business Mileage Log", vehicle: vehicle, unit: .miles, cursor: &cursor)
             drawBusinessMileageSection(ctx, vehicle: vehicle, rate: rate, pageTitle: "Business Mileage Log", cursor: &cursor)
         }
     }
 
     // MARK: - Page / header helpers
 
-    private static func beginPage(_ ctx: UIGraphicsPDFRendererContext, title: String, vehicle: Vehicle, cursor: inout CGFloat) {
+    private static func beginPage(_ ctx: UIGraphicsPDFRendererContext, title: String, vehicle: Vehicle, unit: DistanceUnit, cursor: inout CGFloat) {
         ctx.beginPage()
         cursor = margin
         draw(text: "\(vehicle.displayName) — \(title)", attributes: titleAttributes, cursor: &cursor)
         cursor += 4
-        draw(text: subtitleLine(vehicle), attributes: subtitleAttributes, cursor: &cursor)
+        draw(text: subtitleLine(vehicle, unit: unit), attributes: subtitleAttributes, cursor: &cursor)
         cursor += 4
         draw(text: "Generated \(Date.now.formatted(date: .abbreviated, time: .shortened))", attributes: subtitleAttributes, cursor: &cursor)
         cursor += 12
@@ -78,16 +78,16 @@ enum ExportGenerator {
         cursor += 12
     }
 
-    private static func subtitleLine(_ vehicle: Vehicle) -> String {
-        var parts = ["\(vehicle.year) \(vehicle.make) \(vehicle.model)", "\(vehicle.currentMileage.formatted()) mi"]
+    private static func subtitleLine(_ vehicle: Vehicle, unit: DistanceUnit) -> String {
+        var parts = ["\(vehicle.year) \(vehicle.make) \(vehicle.model)", formattedDistance(vehicle.currentMileage, unit: unit)]
         if !vehicle.vin.isEmpty { parts.append("VIN: \(vehicle.vin)") }
         if !vehicle.licensePlate.isEmpty { parts.append("Plate: \(vehicle.licensePlate)") }
         return parts.joined(separator: "  •  ")
     }
 
-    private static func ensureSpace(_ ctx: UIGraphicsPDFRendererContext, needed: CGFloat, pageTitle: String, vehicle: Vehicle, cursor: inout CGFloat) {
+    private static func ensureSpace(_ ctx: UIGraphicsPDFRendererContext, needed: CGFloat, pageTitle: String, vehicle: Vehicle, unit: DistanceUnit = .miles, cursor: inout CGFloat) {
         if cursor + needed > pageHeight - margin {
-            beginPage(ctx, title: pageTitle, vehicle: vehicle, cursor: &cursor)
+            beginPage(ctx, title: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
         }
     }
 
@@ -115,13 +115,13 @@ enum ExportGenerator {
 
     // MARK: - Section: Vehicle Info
 
-    private static func drawVehicleInfoSection(vehicle: Vehicle, cursor: inout CGFloat) {
+    private static func drawVehicleInfoSection(vehicle: Vehicle, unit: DistanceUnit, cursor: inout CGFloat) {
         draw(text: "Vehicle Information", attributes: sectionHeaderAttributes, cursor: &cursor)
         cursor += 6
         let info = [
             "Year/Make/Model: \(vehicle.year) \(vehicle.make) \(vehicle.model)",
             "Nickname: \(vehicle.nickname.isEmpty ? "—" : vehicle.nickname)",
-            "Mileage: \(vehicle.currentMileage.formatted()) mi",
+            "Mileage: \(formattedDistance(vehicle.currentMileage, unit: unit))",
             "VIN: \(vehicle.vin.isEmpty ? "—" : vehicle.vin)",
             "Plate: \(vehicle.licensePlate.isEmpty ? "—" : vehicle.licensePlate)",
             "Purchased: \(vehicle.purchaseDate.formatted(date: .abbreviated, time: .omitted))"
@@ -140,6 +140,7 @@ enum ExportGenerator {
     private static func drawMaintenanceSection(
         _ ctx: UIGraphicsPDFRendererContext,
         vehicle: Vehicle,
+        unit: DistanceUnit,
         pageTitle: String,
         cursor: inout CGFloat,
         includeSectionHeader: Bool
@@ -153,9 +154,9 @@ enum ExportGenerator {
             draw(text: "No maintenance logged.", attributes: secondaryAttributes, cursor: &cursor)
         }
         for record in records {
-            ensureSpace(ctx, needed: 50, pageTitle: pageTitle, vehicle: vehicle, cursor: &cursor)
+            ensureSpace(ctx, needed: 50, pageTitle: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
             draw(text: record.title, attributes: headingAttributes, cursor: &cursor)
-            let line = "\(record.date.formatted(date: .abbreviated, time: .omitted))  •  \(record.mileage.formatted()) mi  •  \(record.cost.formatted(.currency(code: "USD")))"
+            let line = "\(record.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(record.mileage, unit: unit))  •  \(record.cost.formatted(.currency(code: "USD")))"
             draw(text: line, attributes: secondaryAttributes, cursor: &cursor)
             if !record.notes.isEmpty {
                 draw(text: record.notes, attributes: bodyAttributes, cursor: &cursor)
@@ -169,7 +170,7 @@ enum ExportGenerator {
 
     // MARK: - Section: Fuel
 
-    private static func drawFuelSection(_ ctx: UIGraphicsPDFRendererContext, vehicle: Vehicle, pageTitle: String, cursor: inout CGFloat) {
+    private static func drawFuelSection(_ ctx: UIGraphicsPDFRendererContext, vehicle: Vehicle, unit: DistanceUnit, pageTitle: String, cursor: inout CGFloat) {
         draw(text: "Fuel Log", attributes: sectionHeaderAttributes, cursor: &cursor)
         cursor += 6
         let logs = vehicle.fuelLogs.sorted { $0.date > $1.date }
@@ -177,9 +178,9 @@ enum ExportGenerator {
             draw(text: "No fuel logged.", attributes: secondaryAttributes, cursor: &cursor)
         }
         for log in logs {
-            ensureSpace(ctx, needed: 30, pageTitle: pageTitle, vehicle: vehicle, cursor: &cursor)
+            ensureSpace(ctx, needed: 30, pageTitle: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
             let gallonsText = log.gallons.formatted(.number.precision(.fractionLength(1)))
-            let line = "\(log.date.formatted(date: .abbreviated, time: .omitted))  •  \(log.mileage.formatted()) mi  •  \(gallonsText) gal @ \(log.pricePerGallon.formatted(.currency(code: "USD")))  •  \(log.totalCost.formatted(.currency(code: "USD")))"
+            let line = "\(log.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(log.mileage, unit: unit))  •  \(gallonsText) gal @ \(log.pricePerGallon.formatted(.currency(code: "USD")))  •  \(log.totalCost.formatted(.currency(code: "USD")))"
             draw(text: line, attributes: bodyAttributes, cursor: &cursor)
             cursor += 2
         }
@@ -213,18 +214,18 @@ enum ExportGenerator {
 
     // MARK: - Section: Reminders
 
-    private static func drawReminderSection(_ ctx: UIGraphicsPDFRendererContext, vehicle: Vehicle, pageTitle: String, cursor: inout CGFloat) {
+    private static func drawReminderSection(_ ctx: UIGraphicsPDFRendererContext, vehicle: Vehicle, unit: DistanceUnit, pageTitle: String, cursor: inout CGFloat) {
         draw(text: "Recurring Reminders", attributes: sectionHeaderAttributes, cursor: &cursor)
         cursor += 6
         if vehicle.reminders.isEmpty {
             draw(text: "No reminders set.", attributes: secondaryAttributes, cursor: &cursor)
         }
         for reminder in vehicle.reminders {
-            ensureSpace(ctx, needed: 30, pageTitle: pageTitle, vehicle: vehicle, cursor: &cursor)
+            ensureSpace(ctx, needed: 30, pageTitle: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
             draw(text: reminder.title, attributes: headingAttributes, cursor: &cursor)
             var details: [String] = []
             if let nextDueMileage = reminder.nextDueMileage {
-                details.append("Every \(reminder.intervalMiles.formatted()) mi — next at \(nextDueMileage.formatted()) mi")
+                details.append("Every \(convertFromMiles(reminder.intervalMiles, to: unit).formatted()) \(unit.rawValue) — next at \(formattedDistance(nextDueMileage, unit: unit))")
             }
             if let nextDueDate = reminder.nextDueDate {
                 details.append("Every \(reminder.intervalMonths) mo — next on \(nextDueDate.formatted(date: .abbreviated, time: .omitted))")

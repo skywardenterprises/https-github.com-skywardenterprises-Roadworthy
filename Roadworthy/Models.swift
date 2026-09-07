@@ -319,6 +319,12 @@ final class FuelLog {
 
     var notes: String = ""
 
+    // If this fill-up is the end of a flagged MPG interval that the person
+    // has reviewed and confirmed is fine, this stops it from reappearing
+    // in the Data Quality section — it stays excluded from MPG stats
+    // either way, since we still can't be certain the number is accurate.
+    var mpgWarningIgnored: Bool = false
+
     var vehicle: Vehicle?
 
     init(

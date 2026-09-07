@@ -6,14 +6,14 @@ import Foundation
 /// when one function (like csvEscape) is called from inside another
 /// (like csv(from:)) via a higher-order function such as .map(_:).
 enum CSVGenerator {
-    nonisolated static func maintenanceHistoryCSV(vehicle: Vehicle) -> String {
-        var rows: [[String]] = [["Date", "Type", "Title", "Mileage", "Cost", "Notes"]]
+    nonisolated static func maintenanceHistoryCSV(vehicle: Vehicle, unit: DistanceUnit) -> String {
+        var rows: [[String]] = [["Date", "Type", "Title", "Mileage (\(unit.rawValue))", "Cost", "Notes"]]
         for record in vehicle.maintenanceRecords.sorted(by: { $0.date > $1.date }) {
             rows.append([
                 record.date.formatted(date: .abbreviated, time: .omitted),
                 record.type.rawValue,
                 record.title,
-                String(record.mileage),
+                String(convertFromMiles(record.mileage, to: unit)),
                 String(format: "%.2f", record.cost),
                 record.notes
             ])

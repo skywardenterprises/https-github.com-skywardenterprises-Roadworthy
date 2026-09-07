@@ -10,20 +10,21 @@ struct ExportView: View {
     @State private var fileToShare: ExportFile?
     @State private var exportError: String?
     @AppStorage("businessMileageRate") private var mileageRate: Double = 0.76
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     var body: some View {
         List {
             Section {
                 Button {
                     exportPDF(named: "Maintenance History") {
-                        ExportGenerator.maintenanceHistoryPDF(vehicle: vehicle)
+                        ExportGenerator.maintenanceHistoryPDF(vehicle: vehicle, unit: distanceUnit)
                     }
                 } label: {
                     Label("Export as PDF", systemImage: "doc.richtext")
                 }
                 Button {
                     exportCSV(named: "Maintenance History") {
-                        CSVGenerator.maintenanceHistoryCSV(vehicle: vehicle)
+                        CSVGenerator.maintenanceHistoryCSV(vehicle: vehicle, unit: distanceUnit)
                     }
                 } label: {
                     Label("Export as CSV", systemImage: "tablecells")
@@ -51,7 +52,7 @@ struct ExportView: View {
             Section {
                 Button {
                     exportPDF(named: "Vehicle History Report") {
-                        ExportGenerator.fullVehicleHistoryPDF(vehicle: vehicle)
+                        ExportGenerator.fullVehicleHistoryPDF(vehicle: vehicle, unit: distanceUnit)
                     }
                 } label: {
                     Label("Full Vehicle History Report (PDF)", systemImage: "doc.text.image")

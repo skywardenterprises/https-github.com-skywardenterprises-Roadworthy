@@ -43,6 +43,9 @@ private struct RootView: View {
     @State private var showingSplash = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showingOnboarding = false
+    @AppStorage("hasSeenImportPrompt") private var hasSeenImportPrompt = false
+    @State private var showingImportPrompt = false
+    @AppStorage("appLanguage") private var appLanguage: AppLanguage = .system
 
     var body: some View {
         ZStack {
@@ -53,6 +56,7 @@ private struct RootView: View {
                     .transition(.opacity)
             }
         }
+        .environment(\.locale, appLanguage.locale ?? Locale.autoupdatingCurrent)
         .task {
             try? await Task.sleep(for: .seconds(2))
             withAnimation(.easeOut(duration: 0.4)) {
@@ -60,12 +64,23 @@ private struct RootView: View {
             }
             if !hasCompletedOnboarding {
                 showingOnboarding = true
+            } else if !hasSeenImportPrompt {
+                showingImportPrompt = true
             }
         }
         .fullScreenCover(isPresented: $showingOnboarding) {
             OnboardingView(isPresented: $showingOnboarding)
                 .onDisappear {
                     hasCompletedOnboarding = true
+                    if !hasSeenImportPrompt {
+                        showingImportPrompt = true
+                    }
+                }
+        }
+        .sheet(isPresented: $showingImportPrompt) {
+            ImportPromptView(isPresented: $showingImportPrompt)
+                .onDisappear {
+                    hasSeenImportPrompt = true
                 }
         }
     }

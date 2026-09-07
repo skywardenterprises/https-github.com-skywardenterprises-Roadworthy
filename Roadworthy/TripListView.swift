@@ -4,6 +4,7 @@ import SwiftData
 struct TripListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
     @State private var tripToEdit: TripLog?
 
     // The IRS standard mileage rate changes periodically (sometimes mid-year).
@@ -98,7 +99,7 @@ struct TripListView: View {
                 Text(trip.purpose.rawValue)
                     .font(.headline)
                 Spacer()
-                Text("\(trip.milesDriven.formatted()) mi")
+                Text(formattedDistance(trip.milesDriven, unit: distanceUnit))
                     .foregroundStyle(.secondary)
             }
             Text(trip.date.formatted(date: .abbreviated, time: .omitted))
@@ -128,6 +129,7 @@ struct AddEditTripView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     let vehicle: Vehicle
+    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
     // If editing an existing trip, pass it in. Nil means "creating new".
     var trip: TripLog?
@@ -158,21 +160,21 @@ struct AddEditTripView: View {
                 Section {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     HStack {
-                        Text("Start Mileage")
+                        Text("Start Mileage (\(distanceUnit.rawValue))")
                         Spacer()
                         TextField("Mileage", text: $startMileageText)
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                     }
                     HStack {
-                        Text("End Mileage")
+                        Text("End Mileage (\(distanceUnit.rawValue))")
                         Spacer()
                         TextField("Mileage", text: $endMileageText)
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                     }
                     if milesDriven > 0 {
-                        LabeledContent("Miles Driven", value: "\(milesDriven.formatted()) mi")
+                        LabeledContent("Distance", value: "\(milesDriven.formatted()) \(distanceUnit.rawValue)")
                     }
                 }
 
@@ -223,12 +225,12 @@ struct AddEditTripView: View {
 
     private func loadExistingValues() {
         guard let trip else {
-            startMileageText = vehicle.currentMileage == 0 ? "" : String(vehicle.currentMileage)
+            startMileageText = vehicle.currentMileage == 0 ? "" : String(convertFromMiles(vehicle.currentMileage, to: distanceUnit))
             return
         }
         date = trip.date
-        startMileageText = String(trip.startMileage)
-        endMileageText = String(trip.endMileage)
+        startMileageText = String(convertFromMiles(trip.startMileage, to: distanceUnit))
+        endMileageText = String(convertFromMiles(trip.endMileage, to: distanceUnit))
         purpose = trip.purpose
         businessPurposeNote = trip.businessPurposeNote
         fromLocation = trip.fromLocation
@@ -236,8 +238,8 @@ struct AddEditTripView: View {
     }
 
     private func save() {
-        let start = Int(startMileageText) ?? 0
-        let end = Int(endMileageText) ?? 0
+        let start = convertToMiles(Int(startMileageText) ?? 0, from: distanceUnit)
+        let end = convertToMiles(Int(endMileageText) ?? 0, from: distanceUnit)
 
         if let trip {
             trip.date = date
