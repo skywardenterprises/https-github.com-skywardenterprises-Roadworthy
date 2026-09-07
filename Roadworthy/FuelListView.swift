@@ -46,33 +46,8 @@ struct FuelListView: View {
                             Button {
                                 logToEdit = log
                             } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text("\(log.gallons.formatted(.number.precision(.fractionLength(1)))) gal")
-                                            .font(.headline)
-                                        if log.receiptPhotoData != nil {
-                                            Image(systemName: "paperclip")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        Text(log.totalCost, format: .currency(code: "USD"))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    HStack {
-                                        Text(log.date.formatted(date: .abbreviated, time: .omitted))
-                                        Text("•")
-                                        Text("\(log.mileage.formatted()) mi")
-                                        Text("•")
-                                        Text("\(log.pricePerGallon, format: .currency(code: "USD"))/gal")
-                                        if !log.isFullTank {
-                                            Text("• partial")
-                                        }
-                                    }
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                }
-                                .contentShape(Rectangle())
+                                logRow(log)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.primary)
@@ -86,6 +61,49 @@ struct FuelListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $logToEdit) { log in
             AddEditFuelView(vehicle: vehicle, log: log)
+        }
+    }
+
+    private func logRow(_ log: FuelLog) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(log.gallons.formatted(.number.precision(.fractionLength(1)))) gal")
+                    .font(.headline)
+                if log.fuelGrade != .regular {
+                    Text(log.fuelGrade.rawValue)
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                }
+                if log.receiptPhotoData != nil {
+                    Image(systemName: "paperclip")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(log.totalCost, format: .currency(code: "USD"))
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Text(log.date.formatted(date: .abbreviated, time: .omitted))
+                Text("•")
+                Text("\(log.mileage.formatted()) mi")
+                Text("•")
+                Text("\(log.pricePerGallon, format: .currency(code: "USD"))/gal")
+                if !log.isFullTank {
+                    Text("• partial")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if !log.stationName.isEmpty {
+                Text(log.stationName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -106,9 +124,16 @@ struct AddEditFuelView: View {
 
     @State private var date = Date.now
     @State private var mileageText = ""
+    @State private var fuelGrade: FuelGrade = .regular
     @State private var gallonsText = ""
     @State private var priceText = ""
+    @State private var totalCostText = ""
     @State private var isFullTank = true
+    @State private var stationName = ""
+    @State private var paymentMethod: FuelPaymentMethod = .creditCard
+    @State private var defAdded = false
+    @State private var defAmountText = ""
+    @State private var notes = ""
     @State private var receiptPhotoData: Data?
     @State private var showingValidationAlert = false
     @State private var validationTitle = ""
@@ -121,35 +146,82 @@ struct AddEditFuelView: View {
     var body: some View {
         NavigationStack {
             Form {
-                DatePicker("Date", selection: $date, displayedComponents: .date)
-                HStack {
-                    Text("Mileage")
-                    Spacer()
-                    TextField("Mileage", text: $mileageText)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                }
-                HStack {
-                    Text("Gallons")
-                    Spacer()
-                    TextField("Gallons", text: $gallonsText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                }
-                HStack {
-                    Text("Price / Gallon")
-                    Spacer()
-                    TextField("Price", text: $priceText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                }
-                Toggle("Filled to Full Tank", isOn: $isFullTank)
-                ReceiptPhotoField(photoData: $receiptPhotoData)
-
-                if gallonsValue > 0 {
-                    LabeledContent("Total") {
-                        Text(gallonsValue * priceValue, format: .currency(code: "USD"))
+                Section {
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    HStack {
+                        Text("Odometer")
+                        Spacer()
+                        TextField("Odometer", text: $mileageText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
                     }
+                    Picker("Fuel Grade", selection: $fuelGrade) {
+                        ForEach(FuelGrade.allCases) { grade in
+                            Text(grade.rawValue).tag(grade)
+                        }
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Text("Gallons")
+                        Spacer()
+                        TextField("Gallons", text: $gallonsText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .onChange(of: gallonsText) { _, _ in updateSuggestedTotal() }
+                    }
+                    HStack {
+                        Text("Price / Gallon")
+                        Spacer()
+                        TextField("Price", text: $priceText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .onChange(of: priceText) { _, _ in updateSuggestedTotal() }
+                    }
+                    HStack {
+                        Text("Total Cost")
+                        Spacer()
+                        TextField("Total", text: $totalCostText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    Toggle("Filled to Full Tank", isOn: $isFullTank)
+                } footer: {
+                    Text("Total Cost is filled in automatically from Gallons × Price, but you can edit it directly to account for a discount, tax, or rounding.")
+                }
+
+                Section {
+                    TextField("Station Name / Location", text: $stationName)
+                    Picker("Payment Method", selection: $paymentMethod) {
+                        ForEach(FuelPaymentMethod.allCases) { method in
+                            Text(method.rawValue).tag(method)
+                        }
+                    }
+                }
+
+                if fuelGrade == .diesel {
+                    Section {
+                        Toggle("DEF Added", isOn: $defAdded)
+                        if defAdded {
+                            HStack {
+                                Text("DEF Amount")
+                                Spacer()
+                                TextField("Gallons", text: $defAmountText)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                Text("gal")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } footer: {
+                        Text("Diesel Exhaust Fluid")
+                    }
+                }
+
+                Section {
+                    TextField("Notes", text: $notes, axis: .vertical)
+                    ReceiptPhotoField(photoData: $receiptPhotoData)
                 }
 
                 if isEditing {
@@ -180,18 +252,34 @@ struct AddEditFuelView: View {
         }
     }
 
+    /// Auto-fills Total Cost from Gallons × Price whenever either changes —
+    /// the person can still type over it afterward for a discount/tax/rounding.
+    private func updateSuggestedTotal() {
+        let suggested = gallonsValue * priceValue
+        totalCostText = suggested == 0 ? "" : String(format: "%.2f", suggested)
+    }
+
     private func loadExistingValues() {
         guard let log else { return }
         date = log.date
         mileageText = log.mileage == 0 ? "" : String(log.mileage)
+        fuelGrade = log.fuelGrade
         gallonsText = log.gallons == 0 ? "" : String(log.gallons)
         priceText = log.pricePerGallon == 0 ? "" : String(log.pricePerGallon)
+        totalCostText = log.totalCost == 0 ? "" : String(format: "%.2f", log.totalCost)
         isFullTank = log.isFullTank
+        stationName = log.stationName
+        paymentMethod = log.paymentMethod
+        defAdded = log.defAdded
+        defAmountText = log.defAmount == 0 ? "" : String(log.defAmount)
+        notes = log.notes
         receiptPhotoData = log.receiptPhotoData
     }
 
     private func save() {
         let mileage = Int(mileageText) ?? 0
+        let totalCost = Double(totalCostText) ?? (gallonsValue * priceValue)
+        let defAmount = defAdded ? (Double(defAmountText) ?? 0) : 0
 
         if isFutureDate(date) {
             validationTitle = "Date Is In the Future"
@@ -217,9 +305,16 @@ struct AddEditFuelView: View {
         if let log {
             log.date = date
             log.mileage = mileage
+            log.fuelGrade = fuelGrade
             log.gallons = gallonsValue
             log.pricePerGallon = priceValue
+            log.totalCost = totalCost
             log.isFullTank = isFullTank
+            log.stationName = stationName
+            log.paymentMethod = paymentMethod
+            log.defAdded = defAdded
+            log.defAmount = defAmount
+            log.notes = notes
             log.receiptPhotoData = receiptPhotoData
         } else {
             let newLog = FuelLog(
@@ -228,7 +323,14 @@ struct AddEditFuelView: View {
                 gallons: gallonsValue,
                 pricePerGallon: priceValue,
                 isFullTank: isFullTank,
-                receiptPhotoData: receiptPhotoData
+                receiptPhotoData: receiptPhotoData,
+                totalCost: totalCost,
+                fuelGrade: fuelGrade,
+                stationName: stationName,
+                paymentMethod: paymentMethod,
+                defAdded: defAdded,
+                defAmount: defAmount,
+                notes: notes
             )
             newLog.vehicle = vehicle
             context.insert(newLog)

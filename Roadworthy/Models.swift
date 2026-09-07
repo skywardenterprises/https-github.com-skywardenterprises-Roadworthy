@@ -276,6 +276,26 @@ final class MaintenanceRecord {
 
 // MARK: - Fuel
 
+enum FuelGrade: String, CaseIterable, Codable, Identifiable {
+    case regular = "Regular"
+    case midGrade = "Mid-Grade"
+    case premium = "Premium"
+    case diesel = "Diesel"
+    case e85 = "E85"
+
+    var id: String { rawValue }
+}
+
+enum FuelPaymentMethod: String, CaseIterable, Codable, Identifiable {
+    case creditCard = "Credit Card"
+    case debitCard = "Debit Card"
+    case cash = "Cash"
+    case businessCard = "Business Card"
+    case other = "Other"
+
+    var id: String { rawValue }
+}
+
 @Model
 final class FuelLog {
     var date: Date = Date.now
@@ -284,6 +304,21 @@ final class FuelLog {
     var pricePerGallon: Double = 0
     var isFullTank: Bool = true
     var receiptPhotoData: Data?
+
+    // Stored directly (rather than always derived from gallons × price)
+    // so rounding, discounts, or taxes can be reflected accurately.
+    var totalCost: Double = 0
+
+    var fuelGrade: FuelGrade = FuelGrade.regular
+    var stationName: String = ""
+    var paymentMethod: FuelPaymentMethod = FuelPaymentMethod.creditCard
+
+    // Diesel Exhaust Fluid — only relevant for diesel vehicles.
+    var defAdded: Bool = false
+    var defAmount: Double = 0
+
+    var notes: String = ""
+
     var vehicle: Vehicle?
 
     init(
@@ -292,7 +327,14 @@ final class FuelLog {
         gallons: Double = 0,
         pricePerGallon: Double = 0,
         isFullTank: Bool = true,
-        receiptPhotoData: Data? = nil
+        receiptPhotoData: Data? = nil,
+        totalCost: Double = 0,
+        fuelGrade: FuelGrade = .regular,
+        stationName: String = "",
+        paymentMethod: FuelPaymentMethod = .creditCard,
+        defAdded: Bool = false,
+        defAmount: Double = 0,
+        notes: String = ""
     ) {
         self.date = date
         self.mileage = mileage
@@ -300,9 +342,14 @@ final class FuelLog {
         self.pricePerGallon = pricePerGallon
         self.isFullTank = isFullTank
         self.receiptPhotoData = receiptPhotoData
+        self.totalCost = totalCost
+        self.fuelGrade = fuelGrade
+        self.stationName = stationName
+        self.paymentMethod = paymentMethod
+        self.defAdded = defAdded
+        self.defAmount = defAmount
+        self.notes = notes
     }
-
-    var totalCost: Double { gallons * pricePerGallon }
 }
 
 // MARK: - Expenses

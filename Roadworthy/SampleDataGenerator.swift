@@ -32,7 +32,8 @@ enum SampleDataGenerator {
                 mileage: currentMileage,
                 gallons: gallons,
                 pricePerGallon: price,
-                isFullTank: true
+                isFullTank: true,
+                totalCost: (gallons * price * 100).rounded() / 100
             )
             log.vehicle = vehicle
             context.insert(log)
