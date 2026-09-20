@@ -160,6 +160,24 @@ struct AddEditFuelView: View {
     let vehicle: Vehicle
     @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
 
+    // Every fuel log across every vehicle, most recent first — used to
+    // build the Station Name autocomplete suggestions. The same gas
+    // station serves whichever car you're driving, so this isn't scoped
+    // to just the current vehicle.
+    @Query(sort: \FuelLog.date, order: .reverse) private var allFuelLogs: [FuelLog]
+
+    private var stationNameHistory: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for log in allFuelLogs {
+            let name = log.stationName.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, !seen.contains(name) else { continue }
+            seen.insert(name)
+            result.append(name)
+        }
+        return result
+    }
+
     // If editing an existing log, pass it in. Nil means "creating new".
     var log: FuelLog?
 
@@ -207,33 +225,28 @@ struct AddEditFuelView: View {
                     HStack {
                         Text("Gallons")
                         Spacer()
-                        TextField("Gallons", text: $gallonsText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
+                        AutoDecimalField(title: "Gallons", text: $gallonsText, decimalPlaces: 3, prefix: nil)
                             .onChange(of: gallonsText) { _, _ in updateSuggestedTotal() }
                     }
                     HStack {
                         Text("Price / Gallon")
                         Spacer()
-                        TextField("Price", text: $priceText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
+                        AutoDecimalField(title: "Price", text: $priceText, decimalPlaces: 3)
                             .onChange(of: priceText) { _, _ in updateSuggestedTotal() }
                     }
                     HStack {
                         Text("Total Cost")
                         Spacer()
-                        TextField("Total", text: $totalCostText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
+                        AutoDecimalField(title: "Total", text: $totalCostText)
+                            .onChange(of: totalCostText) { _, _ in recalculateFuelMath(changed: .total) }
                     }
                     Toggle("Filled to Full Tank", isOn: $isFullTank)
                 } footer: {
-                    Text("Total Cost is filled in automatically from Gallons × Price, but you can edit it directly to account for a discount, tax, or rounding.")
+                    Text("Enter any two of Gallons, Price/Gallon, and Total Cost, and the third fills in automatically. You can always edit any of them directly afterward.")
                 }
 
                 Section {
-                    TextField("Station Name / Location", text: $stationName)
+                    AutocompleteField(title: "Station Name / Location", text: $stationName, history: stationNameHistory)
                     Picker("Payment Method", selection: $paymentMethod) {
                         ForEach(FuelPaymentMethod.allCases) { method in
                             Text(method.rawValue).tag(method)
@@ -248,9 +261,7 @@ struct AddEditFuelView: View {
                             HStack {
                                 Text("DEF Amount")
                                 Spacer()
-                                TextField("Gallons", text: $defAmountText)
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
+                                AutoDecimalField(title: "Gallons", text: $defAmountText, decimalPlaces: 3, prefix: nil)
                                 Text("gal")
                                     .foregroundStyle(.secondary)
                             }
@@ -296,8 +307,31 @@ struct AddEditFuelView: View {
     /// Auto-fills Total Cost from Gallons × Price whenever either changes —
     /// the person can still type over it afterward for a discount/tax/rounding.
     private func updateSuggestedTotal() {
-        let suggested = gallonsValue * priceValue
-        totalCostText = suggested == 0 ? "" : String(format: "%.2f", suggested)
+        recalculateFuelMath(changed: .gallonsOrPrice)
+    }
+
+    /// Gallons, Price/Gallon, and Total Cost are all derivable from each
+    /// other — this fills in whichever one is missing, without clobbering
+    /// a value someone typed directly. The default flow is Gallons × Price
+    /// → Total, but if Gallons hasn't been entered yet and both Price and
+    /// Total are known (e.g. reading straight off a receipt), Gallons gets
+    /// worked out instead.
+    private enum FuelMathSource { case gallonsOrPrice, total }
+
+    private func recalculateFuelMath(changed: FuelMathSource) {
+        switch changed {
+        case .gallonsOrPrice:
+            if gallonsText.isEmpty, priceValue > 0, let total = Double(totalCostText), total > 0 {
+                gallonsText = String(format: "%.3f", total / priceValue)
+            } else if !gallonsText.isEmpty, priceValue > 0 {
+                let suggested = gallonsValue * priceValue
+                totalCostText = suggested == 0 ? "" : String(format: "%.2f", suggested)
+            }
+        case .total:
+            if gallonsText.isEmpty, priceValue > 0, let total = Double(totalCostText), total > 0 {
+                gallonsText = String(format: "%.3f", total / priceValue)
+            }
+        }
     }
 
     private func loadExistingValues() {

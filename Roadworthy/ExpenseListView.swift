@@ -96,9 +96,7 @@ struct AddEditExpenseView: View {
                 HStack {
                     Text("Amount")
                     Spacer()
-                    TextField("Amount", text: $amountText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
+                    AutoDecimalField(title: "Amount", text: $amountText)
                 }
                 TextField("Notes", text: $notes, axis: .vertical)
                 ReceiptPhotoField(photoData: $receiptPhotoData)

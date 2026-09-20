@@ -113,6 +113,35 @@ enum ExportGenerator {
         return bounding.height
     }
 
+    // MARK: - Receipt photo embedding
+
+    /// Draws a receipt photo inline, scaled to fit the page width with a
+    /// capped height so one large photo can't dominate the whole report.
+    /// Reserves space first so the image never gets cut across a page break.
+    private static func drawReceiptPhotoIfPresent(
+        _ data: Data?,
+        _ ctx: UIGraphicsPDFRendererContext,
+        pageTitle: String,
+        vehicle: Vehicle,
+        unit: DistanceUnit = .miles,
+        cursor: inout CGFloat
+    ) {
+        guard let data, let image = UIImage(data: data) else { return }
+        let maxHeight: CGFloat = 180
+        let aspectRatio = image.size.width / image.size.height
+        var width = contentWidth
+        var height = width / aspectRatio
+        if height > maxHeight {
+            height = maxHeight
+            width = height * aspectRatio
+        }
+
+        ensureSpace(ctx, needed: height + 12, pageTitle: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
+        let rect = CGRect(x: margin, y: cursor, width: width, height: height)
+        image.draw(in: rect)
+        cursor += height + 8
+    }
+
     // MARK: - Section: Vehicle Info
 
     private static func drawVehicleInfoSection(vehicle: Vehicle, unit: DistanceUnit, cursor: inout CGFloat) {
@@ -161,6 +190,7 @@ enum ExportGenerator {
             if !record.notes.isEmpty {
                 draw(text: record.notes, attributes: bodyAttributes, cursor: &cursor)
             }
+            drawReceiptPhotoIfPresent(record.receiptPhotoData, ctx, pageTitle: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
             cursor += 8
         }
         cursor += 8
@@ -182,6 +212,7 @@ enum ExportGenerator {
             let gallonsText = log.gallons.formatted(.number.precision(.fractionLength(1)))
             let line = "\(log.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(log.mileage, unit: unit))  •  \(gallonsText) gal @ \(log.pricePerGallon.formatted(.currency(code: "USD")))  •  \(log.totalCost.formatted(.currency(code: "USD")))"
             draw(text: line, attributes: bodyAttributes, cursor: &cursor)
+            drawReceiptPhotoIfPresent(log.receiptPhotoData, ctx, pageTitle: pageTitle, vehicle: vehicle, unit: unit, cursor: &cursor)
             cursor += 2
         }
         cursor += 8
@@ -205,6 +236,7 @@ enum ExportGenerator {
             if !expense.notes.isEmpty {
                 draw(text: expense.notes, attributes: secondaryAttributes, cursor: &cursor)
             }
+            drawReceiptPhotoIfPresent(expense.receiptPhotoData, ctx, pageTitle: pageTitle, vehicle: vehicle, cursor: &cursor)
             cursor += 4
         }
         cursor += 8

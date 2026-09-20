@@ -41,6 +41,10 @@ struct MaintenanceListView: View {
                                     Text(record.date.formatted(date: .abbreviated, time: .omitted))
                                     Text("•")
                                     Text(formattedDistance(record.mileage, unit: distanceUnit))
+                                    if !record.shopName.isEmpty {
+                                        Text("•")
+                                        Text(record.shopName)
+                                    }
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -88,6 +92,7 @@ struct AddEditMaintenanceView: View {
     @State private var date = Date.now
     @State private var mileageText = ""
     @State private var costText = ""
+    @State private var shopName = ""
     @State private var notes = ""
     @State private var receiptPhotoData: Data?
     @State private var setReminder = false
@@ -123,11 +128,10 @@ struct AddEditMaintenanceView: View {
                     HStack {
                         Text("Cost")
                         Spacer()
-                        TextField("Cost", text: $costText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
+                        AutoDecimalField(title: "Cost", text: $costText)
                     }
                     TextField("Notes", text: $notes, axis: .vertical)
+                    TextField("Shop Name (optional)", text: $shopName)
                     ReceiptPhotoField(photoData: $receiptPhotoData)
                 }
 
@@ -180,6 +184,7 @@ struct AddEditMaintenanceView: View {
         date = record.date
         mileageText = record.mileage == 0 ? "" : String(convertFromMiles(record.mileage, to: distanceUnit))
         costText = record.cost == 0 ? "" : String(record.cost)
+        shopName = record.shopName
         notes = record.notes
         receiptPhotoData = record.receiptPhotoData
         if let dueMileage = record.nextDueMileage {
@@ -236,6 +241,7 @@ struct AddEditMaintenanceView: View {
             record.date = date
             record.mileage = mileage
             record.cost = cost
+            record.shopName = shopName
             record.notes = notes
             record.receiptPhotoData = receiptPhotoData
             record.nextDueMileage = setReminder ? nextDueMileage : nil
@@ -247,6 +253,7 @@ struct AddEditMaintenanceView: View {
                 date: date,
                 mileage: mileage,
                 cost: cost,
+                shopName: shopName,
                 notes: notes,
                 nextDueMileage: setReminder ? nextDueMileage : nil,
                 nextDueDate: setReminder ? nextDueDate : nil,

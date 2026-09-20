@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import CoreData
 import CloudKit
 
@@ -44,23 +45,22 @@ final class CloudSyncMonitor: ObservableObject {
     }
 
     private func checkAccountStatus() {
-        CKContainer.default().accountStatus { [weak self] status, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                switch status {
-                case .available:
-                    // Leave whatever state we already have — sync events
-                    // (or the persisted last-sync time) will reflect reality.
-                    break
-                case .noAccount:
-                    self.state = .unavailable(reason: "Not signed into iCloud on this device")
-                case .restricted:
-                    self.state = .unavailable(reason: "iCloud access is restricted on this device")
-                case .couldNotDetermine, .temporarilyUnavailable:
-                    self.state = .unavailable(reason: "Couldn't check iCloud status right now")
-                @unknown default:
-                    self.state = .unavailable(reason: "Couldn't check iCloud status right now")
-                }
+        Task { @MainActor [weak self] in
+            let status = try? await CKContainer.default().accountStatus()
+            guard let self else { return }
+            switch status {
+            case .available:
+                // Leave whatever state we already have — sync events
+                // (or the persisted last-sync time) will reflect reality.
+                break
+            case .noAccount:
+                self.state = .unavailable(reason: "Not signed into iCloud on this device")
+            case .restricted:
+                self.state = .unavailable(reason: "iCloud access is restricted on this device")
+            case .couldNotDetermine, .temporarilyUnavailable, .none:
+                self.state = .unavailable(reason: "Couldn't check iCloud status right now")
+            @unknown default:
+                self.state = .unavailable(reason: "Couldn't check iCloud status right now")
             }
         }
     }
@@ -70,23 +70,52 @@ final class CloudSyncMonitor: ObservableObject {
             forName: NSPersistentCloudKitContainer.eventChangedNotification,
             object: nil,
             queue: .main
-        ) { [weak self] notification in
-            guard let self,
-                  let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
+        ) { notification in
+            guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
                     as? NSPersistentCloudKitContainer.Event
             else { return }
 
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 if event.endDate == nil {
                     self.state = .syncing
                 } else if let error = event.error {
-                    self.state = .error(error.localizedDescription)
+                    self.state = .error(self.friendlyMessage(for: error))
                 } else if event.succeeded {
                     let now = Date()
                     self.lastSyncTimestamp = now.timeIntervalSince1970
                     self.state = .synced(now)
                 }
             }
+        }
+    }
+
+    /// Translates CloudKit's raw error codes into plain language, instead
+    /// of showing something like "CKErrorDomain error 2" — which is
+    /// technically accurate and useless to anyone but a developer.
+    private func friendlyMessage(for error: Error) -> String {
+        guard let ckError = error as? CKError else {
+            return error.localizedDescription
+        }
+
+        switch ckError.code {
+        case .partialFailure:
+            // Some records in a batch synced, some didn't — common right
+            // after a large import, and usually resolves on the next
+            // automatic retry rather than needing anything from the person.
+            return "Some changes are still syncing — this usually resolves on its own shortly."
+        case .networkUnavailable, .networkFailure:
+            return "No internet connection right now. Sync will resume automatically once you're back online."
+        case .notAuthenticated:
+            return "You're no longer signed into iCloud on this device."
+        case .quotaExceeded:
+            return "Your iCloud storage is full. Free up space to keep syncing."
+        case .zoneBusy, .serviceUnavailable, .requestRateLimited:
+            return "iCloud is temporarily busy. This should resolve on its own shortly."
+        case .accountTemporarilyUnavailable:
+            return "Your iCloud account is temporarily unavailable."
+        default:
+            return ckError.localizedDescription
         }
     }
 }

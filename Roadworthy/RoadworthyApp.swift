@@ -46,6 +46,7 @@ private struct RootView: View {
     @AppStorage("hasSeenImportPrompt") private var hasSeenImportPrompt = false
     @State private var showingImportPrompt = false
     @AppStorage("appLanguage") private var appLanguage: AppLanguage = .system
+    @StateObject private var syncMonitor = CloudSyncMonitor()
 
     var body: some View {
         ZStack {
@@ -57,6 +58,7 @@ private struct RootView: View {
             }
         }
         .environment(\.locale, appLanguage.locale ?? Locale.autoupdatingCurrent)
+        .environmentObject(syncMonitor)
         .task {
             try? await Task.sleep(for: .seconds(2))
             withAnimation(.easeOut(duration: 0.4)) {

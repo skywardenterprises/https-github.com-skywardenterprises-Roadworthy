@@ -19,6 +19,8 @@ struct ImportView: View {
     @State private var showingFilePicker = false
     @State private var importResult: ImportResult?
     @State private var vehicleMappings: [String: VehicleMappingChoice] = [:]
+    @State private var excludedFuelIndices: Set<Int> = []
+    @State private var excludedMaintenanceIndices: Set<Int> = []
     @State private var showingParseError = false
     @State private var showingSuccessAlert = false
     @State private var successMessage = ""
@@ -86,7 +88,13 @@ struct ImportView: View {
         Group {
             Section {
                 Text("Found \(result.fuelEntries.count) fuel-up\(result.fuelEntries.count == 1 ? "" : "s") and \(result.maintenanceEntries.count) maintenance record\(result.maintenanceEntries.count == 1 ? "" : "s") across \(result.vehicleNames.count) vehicle\(result.vehicleNames.count == 1 ? "" : "s").")
+                if !excludedFuelIndices.isEmpty || !excludedMaintenanceIndices.isEmpty {
+                    Text("\(excludedFuelIndices.count + excludedMaintenanceIndices.count) flagged as possible duplicates and excluded by default — see below.")
+                        .foregroundStyle(.orange)
+                }
             }
+
+            duplicatesSection(result)
 
             Section {
                 ForEach(result.vehicleNames, id: \.self) { name in
@@ -125,6 +133,55 @@ struct ImportView: View {
         }
     }
 
+    @ViewBuilder
+    private func duplicatesSection(_ result: ImportResult) -> some View {
+        let flaggedFuel = result.fuelEntries.indices.filter { result.fuelEntries[$0].isPossibleDuplicate }
+        let flaggedMaintenance = result.maintenanceEntries.indices.filter { result.maintenanceEntries[$0].isPossibleDuplicate }
+
+        if !flaggedFuel.isEmpty || !flaggedMaintenance.isEmpty {
+            Section {
+                ForEach(flaggedFuel, id: \.self) { index in
+                    let entry = result.fuelEntries[index]
+                    Toggle(isOn: Binding(
+                        get: { !excludedFuelIndices.contains(index) },
+                        set: { include in
+                            if include { excludedFuelIndices.remove(index) } else { excludedFuelIndices.insert(index) }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(entry.date.formatted(date: .abbreviated, time: .omitted)) — \(entry.mileage.formatted()) mi")
+                                .font(.subheadline)
+                            Text("\(entry.gallons.formatted(.number.precision(.fractionLength(1)))) gal  •  \(entry.vehicleName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                ForEach(flaggedMaintenance, id: \.self) { index in
+                    let entry = result.maintenanceEntries[index]
+                    Toggle(isOn: Binding(
+                        get: { !excludedMaintenanceIndices.contains(index) },
+                        set: { include in
+                            if include { excludedMaintenanceIndices.remove(index) } else { excludedMaintenanceIndices.insert(index) }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(entry.date.formatted(date: .abbreviated, time: .omitted)) — \(entry.mileage.formatted()) mi")
+                                .font(.subheadline)
+                            Text("\(entry.title)  •  \(entry.vehicleName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Possible Duplicates")
+            } footer: {
+                Text("These entries share a date and near-identical mileage with another entry in this file — often caused by a bug or accidental double-entry in the source app. Excluded from import by default; turn one back on if it's actually a separate, legitimate entry.")
+            }
+        }
+    }
+
     private func handleFileSelection(_ result: Result<URL, Error>) {
         switch result {
         case .success(let url):
@@ -140,6 +197,8 @@ struct ImportView: View {
                 return
             }
             importResult = parsed
+            excludedFuelIndices = Set(parsed.fuelEntries.indices.filter { parsed.fuelEntries[$0].isPossibleDuplicate })
+            excludedMaintenanceIndices = Set(parsed.maintenanceEntries.indices.filter { parsed.maintenanceEntries[$0].isPossibleDuplicate })
         case .failure:
             showingParseError = true
         }
@@ -157,7 +216,8 @@ struct ImportView: View {
         }
 
         var fuelCount = 0
-        for entry in result.fuelEntries {
+        for (index, entry) in result.fuelEntries.enumerated() {
+            guard !excludedFuelIndices.contains(index) else { continue }
             guard let vehicle = vehiclesByName[entry.vehicleName] else { continue }
             let log = FuelLog(
                 date: entry.date,
@@ -180,7 +240,8 @@ struct ImportView: View {
         }
 
         var maintenanceCount = 0
-        for entry in result.maintenanceEntries {
+        for (index, entry) in result.maintenanceEntries.enumerated() {
+            guard !excludedMaintenanceIndices.contains(index) else { continue }
             guard let vehicle = vehiclesByName[entry.vehicleName] else { continue }
             let record = MaintenanceRecord(
                 type: entry.type,
@@ -188,6 +249,7 @@ struct ImportView: View {
                 date: entry.date,
                 mileage: entry.mileage,
                 cost: entry.cost,
+                shopName: entry.shopName,
                 notes: entry.notes
             )
             record.vehicle = vehicle

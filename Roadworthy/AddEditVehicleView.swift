@@ -153,16 +153,12 @@ struct AddEditVehicleView: View {
                     HStack {
                         Text("Purchase Price")
                         Spacer()
-                        TextField("Price", text: $purchasePriceText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
+                        AutoDecimalField(title: "Price", text: $purchasePriceText)
                     }
                     HStack {
                         Text("Est. Current Value")
                         Spacer()
-                        TextField("Value", text: $currentValueText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
+                        AutoDecimalField(title: "Value", text: $currentValueText)
                     }
                 } header: {
                     Text("Ownership Value")

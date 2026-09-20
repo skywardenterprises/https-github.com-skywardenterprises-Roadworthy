@@ -245,6 +245,7 @@ final class MaintenanceRecord {
     var date: Date = Date.now
     var mileage: Int = 0
     var cost: Double = 0
+    var shopName: String = ""
     var notes: String = ""
     var nextDueMileage: Int?
     var nextDueDate: Date?
@@ -257,6 +258,7 @@ final class MaintenanceRecord {
         date: Date = .now,
         mileage: Int = 0,
         cost: Double = 0,
+        shopName: String = "",
         notes: String = "",
         nextDueMileage: Int? = nil,
         nextDueDate: Date? = nil,
@@ -267,6 +269,7 @@ final class MaintenanceRecord {
         self.date = date
         self.mileage = mileage
         self.cost = cost
+        self.shopName = shopName
         self.notes = notes
         self.nextDueMileage = nextDueMileage
         self.nextDueDate = nextDueDate

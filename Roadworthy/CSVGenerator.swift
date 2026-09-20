@@ -7,7 +7,11 @@ import Foundation
 /// (like csv(from:)) via a higher-order function such as .map(_:).
 enum CSVGenerator {
     nonisolated static func maintenanceHistoryCSV(vehicle: Vehicle, unit: DistanceUnit) -> String {
-        var rows: [[String]] = [["Date", "Type", "Title", "Mileage (\(unit.rawValue))", "Cost", "Notes"]]
+        // CSV can't embed the actual photo — but staying silent about it
+        // makes it look like the record has no receipt at all when it does.
+        // Flagging it here means nothing is lost without your knowledge;
+        // the PDF export is what actually embeds the image.
+        var rows: [[String]] = [["Date", "Type", "Title", "Mileage (\(unit.rawValue))", "Cost", "Notes", "Has Receipt Photo"]]
         for record in vehicle.maintenanceRecords.sorted(by: { $0.date > $1.date }) {
             rows.append([
                 record.date.formatted(date: .abbreviated, time: .omitted),
@@ -15,7 +19,8 @@ enum CSVGenerator {
                 record.title,
                 String(convertFromMiles(record.mileage, to: unit)),
                 String(format: "%.2f", record.cost),
-                record.notes
+                record.notes,
+                record.receiptPhotoData != nil ? "Yes" : "No"
             ])
         }
         return csv(from: rows)

@@ -15,6 +15,12 @@ struct ImportedFuelEntry {
     let stationName: String
     let paymentMethod: FuelPaymentMethod
     let notes: String
+    /// Same date and near-identical mileage as another entry for the same
+    /// vehicle in this file — often a sign of a duplicate caused by a bug
+    /// or accidental double-entry in the source app, rather than two real
+    /// fill-ups. Flagged so the person can review before importing, not
+    /// silently dropped.
+    var isPossibleDuplicate = false
 }
 
 /// A maintenance record parsed from an import file, same deal as above.
@@ -25,7 +31,9 @@ struct ImportedMaintenanceEntry {
     let cost: Double
     let title: String
     let type: MaintenanceType
+    let shopName: String
     let notes: String
+    var isPossibleDuplicate = false
 }
 
 struct ImportResult {
@@ -112,13 +120,53 @@ enum FuellyImporter {
                     cost: parseDollarOrPlainNumber(row[totalCostCol]),
                     title: servicesText,
                     type: inferMaintenanceType(from: servicesText),
-                    notes: shopName.isEmpty ? "" : "Shop: \(shopName)"
+                    shopName: shopName,
+                    notes: ""
                 )
                 maintenanceEntries.append(entry)
             }
         }
 
+        markDuplicates(&fuelEntries)
+        markDuplicates(&maintenanceEntries)
+
         return ImportResult(fuelEntries: fuelEntries, maintenanceEntries: maintenanceEntries, vehicleNames: vehicleNames)
+    }
+
+    // MARK: - Duplicate detection
+
+    /// Flags entries that share a vehicle, the same calendar day, and
+    /// near-identical mileage with another entry in the same array — the
+    /// signature of a duplicate caused by a bug or accidental double-entry
+    /// in the source app, not two genuinely separate events.
+    private static func markDuplicates(_ entries: inout [ImportedFuelEntry]) {
+        let calendar = Calendar.current
+        for i in entries.indices {
+            guard !entries[i].isPossibleDuplicate else { continue }
+            for j in entries.indices where j != i {
+                guard entries[i].vehicleName == entries[j].vehicleName,
+                      calendar.isDate(entries[i].date, inSameDayAs: entries[j].date),
+                      abs(entries[i].mileage - entries[j].mileage) <= 3
+                else { continue }
+                entries[i].isPossibleDuplicate = true
+                break
+            }
+        }
+    }
+
+    private static func markDuplicates(_ entries: inout [ImportedMaintenanceEntry]) {
+        let calendar = Calendar.current
+        for i in entries.indices {
+            guard !entries[i].isPossibleDuplicate else { continue }
+            for j in entries.indices where j != i {
+                guard entries[i].vehicleName == entries[j].vehicleName,
+                      calendar.isDate(entries[i].date, inSameDayAs: entries[j].date),
+                      abs(entries[i].mileage - entries[j].mileage) <= 1
+                else { continue }
+                entries[i].isPossibleDuplicate = true
+                break
+            }
+        }
     }
 
     // MARK: - Field parsing helpers
