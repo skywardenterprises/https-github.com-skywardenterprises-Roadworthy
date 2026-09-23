@@ -27,6 +27,15 @@ enum VehicleType: String, CaseIterable, Codable, Identifiable {
 
 @Model
 final class Vehicle {
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
     var nickname: String = ""
     var make: String = ""
     var model: String = ""
@@ -42,7 +51,23 @@ final class Vehicle {
     @Attribute(.externalStorage) var insuranceCardData: Data?
     var isActive: Bool = true
     var inactiveDate: Date?
-    var vehicleType: VehicleType = VehicleType.car
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.other` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var vehicleTypeRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `vehicleTypeRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "vehicleType") var legacyVehicleType: VehicleType?
+    var vehicleType: VehicleType {
+        get {
+            if vehicleTypeRaw.isEmpty { return legacyVehicleType ?? .car }
+            return VehicleType(rawValue: vehicleTypeRaw) ?? .other
+        }
+        set { vehicleTypeRaw = newValue.rawValue }
+    }
     var purchasePrice: Double = 0
     var estimatedCurrentValue: Double?
     var estimatedValueUpdatedDate: Date?
@@ -91,6 +116,7 @@ final class Vehicle {
         estimatedCurrentValue: Double? = nil,
         estimatedValueUpdatedDate: Date? = nil
     ) {
+        self.stableID = UUID()
         self.nickname = nickname
         self.make = make
         self.model = model
@@ -253,7 +279,32 @@ enum MaintenanceType: String, CaseIterable, Codable, Identifiable {
 
 @Model
 final class MaintenanceRecord {
-    var type: MaintenanceType = MaintenanceType.other
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.other` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var typeRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `typeRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "type") var legacyType: MaintenanceType?
+    var type: MaintenanceType {
+        get {
+            if typeRaw.isEmpty { return legacyType ?? .other }
+            return MaintenanceType(rawValue: typeRaw) ?? .other
+        }
+        set { typeRaw = newValue.rawValue }
+    }
     var title: String = ""
     var date: Date = Date.now
     var mileage: Int = 0
@@ -280,6 +331,7 @@ final class MaintenanceRecord {
         nextDueDate: Date? = nil,
         receiptPhotoData: Data? = nil
     ) {
+        self.stableID = UUID()
         self.type = type
         self.title = title.isEmpty ? type.rawValue : title
         self.date = date
@@ -317,6 +369,15 @@ enum FuelPaymentMethod: String, CaseIterable, Codable, Identifiable {
 
 @Model
 final class FuelLog {
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
     var date: Date = Date.now
     var mileage: Int = 0
     var gallons: Double = 0
@@ -331,9 +392,41 @@ final class FuelLog {
     // so rounding, discounts, or taxes can be reflected accurately.
     var totalCost: Double = 0
 
-    var fuelGrade: FuelGrade = FuelGrade.regular
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.regular` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var fuelGradeRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `fuelGradeRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "fuelGrade") var legacyFuelGrade: FuelGrade?
+    var fuelGrade: FuelGrade {
+        get {
+            if fuelGradeRaw.isEmpty { return legacyFuelGrade ?? .regular }
+            return FuelGrade(rawValue: fuelGradeRaw) ?? .regular
+        }
+        set { fuelGradeRaw = newValue.rawValue }
+    }
     var stationName: String = ""
-    var paymentMethod: FuelPaymentMethod = FuelPaymentMethod.creditCard
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.other` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var paymentMethodRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `paymentMethodRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "paymentMethod") var legacyPaymentMethod: FuelPaymentMethod?
+    var paymentMethod: FuelPaymentMethod {
+        get {
+            if paymentMethodRaw.isEmpty { return legacyPaymentMethod ?? .creditCard }
+            return FuelPaymentMethod(rawValue: paymentMethodRaw) ?? .other
+        }
+        set { paymentMethodRaw = newValue.rawValue }
+    }
 
     // Diesel Exhaust Fluid — only relevant for diesel vehicles.
     var defAdded: Bool = false
@@ -364,6 +457,7 @@ final class FuelLog {
         defAmount: Double = 0,
         notes: String = ""
     ) {
+        self.stableID = UUID()
         self.date = date
         self.mileage = mileage
         self.gallons = gallons
@@ -396,7 +490,32 @@ enum ExpenseCategory: String, CaseIterable, Codable, Identifiable {
 
 @Model
 final class ExpenseRecord {
-    var category: ExpenseCategory = ExpenseCategory.other
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.other` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var categoryRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `categoryRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "category") var legacyCategory: ExpenseCategory?
+    var category: ExpenseCategory {
+        get {
+            if categoryRaw.isEmpty { return legacyCategory ?? .other }
+            return ExpenseCategory(rawValue: categoryRaw) ?? .other
+        }
+        set { categoryRaw = newValue.rawValue }
+    }
     var date: Date = Date.now
     var amount: Double = 0
     var notes: String = ""
@@ -413,6 +532,7 @@ final class ExpenseRecord {
         notes: String = "",
         receiptPhotoData: Data? = nil
     ) {
+        self.stableID = UUID()
         self.category = category
         self.date = date
         self.amount = amount
@@ -425,6 +545,15 @@ final class ExpenseRecord {
 
 @Model
 final class VehicleDocument {
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
     var title: String = ""
     var dateAdded: Date = Date.now
     /// Stored as a separate file (external storage), so reading this
@@ -440,6 +569,7 @@ final class VehicleDocument {
         imageData: Data? = nil,
         notes: String = ""
     ) {
+        self.stableID = UUID()
         self.title = title
         self.dateAdded = dateAdded
         self.imageData = imageData
@@ -454,8 +584,33 @@ final class VehicleDocument {
 /// first is what triggers the reminder as "due."
 @Model
 final class MaintenanceReminder {
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
     var title: String = ""
-    var type: MaintenanceType = MaintenanceType.other
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.other` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var typeRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `typeRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "type") var legacyType: MaintenanceType?
+    var type: MaintenanceType {
+        get {
+            if typeRaw.isEmpty { return legacyType ?? .other }
+            return MaintenanceType(rawValue: typeRaw) ?? .other
+        }
+        set { typeRaw = newValue.rawValue }
+    }
     var notes: String = ""
 
     var repeatByMileage: Bool = false
@@ -489,6 +644,7 @@ final class MaintenanceReminder {
         notificationsEnabled: Bool = false,
         notifyDaysBefore: Int = 0
     ) {
+        self.stableID = UUID()
         self.title = title
         self.type = type
         self.notes = notes
@@ -615,7 +771,32 @@ enum SpecCategory: String, CaseIterable, Codable, Identifiable {
 /// history log so common lookups don't get buried in past service records.
 @Model
 final class VehicleSpec {
-    var category: SpecCategory = SpecCategory.part
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.part` instead of failing to decode it.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var categoryRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `categoryRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "category") var legacyCategory: SpecCategory?
+    var category: SpecCategory {
+        get {
+            if categoryRaw.isEmpty { return legacyCategory ?? .part }
+            return SpecCategory(rawValue: categoryRaw) ?? .part
+        }
+        set { categoryRaw = newValue.rawValue }
+    }
     var name: String = ""    // e.g. "Oil Filter", "Wheel Lug Nuts"
     var value: String = ""   // e.g. "PH3593A", "89 ft-lb"
     var brand: String = ""   // e.g. "Bosch", "Fram" — parts only
@@ -629,6 +810,7 @@ final class VehicleSpec {
         brand: String = "",
         notes: String = ""
     ) {
+        self.stableID = UUID()
         self.category = category
         self.name = name
         self.value = value
@@ -652,10 +834,37 @@ enum TripPurpose: String, CaseIterable, Codable, Identifiable {
 /// mileage is tracked everywhere else in the app.
 @Model
 final class TripLog {
+    /// Permanent identifier for this record, the same on every device.
+    /// Used to match records when a backup is re-imported, so importing the
+    /// same backup twice updates records instead of duplicating them.
+    /// Optional only because records saved before this change don't have
+    /// one yet; `DataMigrations` assigns them at launch. (A non-optional
+    /// default would give every existing record the same ID during the
+    /// store migration.)
+    var stableID: UUID?
+
     var date: Date = Date.now
     var startMileage: Int = 0
     var endMileage: Int = 0
-    var purpose: TripPurpose = TripPurpose.business
+    /// Stored as the enum's raw string rather than the enum itself. A newer
+    /// app version can add a case, sync it, and an older version on another
+    /// device reads it as `.personal` instead of failing to decode it.
+    /// Unknown values read as `.personal`, so they never count toward the
+    /// business-mileage deduction by mistake.
+    /// Empty only for records saved before this change, until
+    /// `DataMigrations` fills it in at launch.
+    var purposeRaw: String = ""
+    /// Pre-raw-string storage, kept only so `DataMigrations` can copy it into
+    /// `purposeRaw`. Never written. Can be deleted in a later release, once every
+    /// device has run this version.
+    @Attribute(originalName: "purpose") var legacyPurpose: TripPurpose?
+    var purpose: TripPurpose {
+        get {
+            if purposeRaw.isEmpty { return legacyPurpose ?? .business }
+            return TripPurpose(rawValue: purposeRaw) ?? .personal
+        }
+        set { purposeRaw = newValue.rawValue }
+    }
     var businessPurposeNote: String = ""   // required by the IRS for business trips
     var fromLocation: String = ""
     var toLocation: String = ""
@@ -670,6 +879,7 @@ final class TripLog {
         fromLocation: String = "",
         toLocation: String = ""
     ) {
+        self.stableID = UUID()
         self.date = date
         self.startMileage = startMileage
         self.endMileage = endMileage

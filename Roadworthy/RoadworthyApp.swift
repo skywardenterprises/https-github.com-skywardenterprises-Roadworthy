@@ -127,6 +127,7 @@ private enum LocalOnlyRecord {
 private struct RootView: View {
     let storeMode: StoreMode
 
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var syncMonitor: CloudSyncMonitor
     @Query private var allVehicles: [Vehicle]
 
@@ -166,6 +167,10 @@ private struct RootView: View {
         .environment(\.locale, appLanguage.locale ?? Locale.autoupdatingCurrent)
         .environmentObject(syncMonitor)
         .task {
+            // Fills in raw-string enum values and stable IDs for records
+            // saved before those fields existed. Runs every launch; after
+            // the first time it finds nothing to do.
+            DataMigrations.run(in: modelContext)
             try? await Task.sleep(for: .seconds(2))
             withAnimation(.easeOut(duration: 0.4)) {
                 showingSplash = false
