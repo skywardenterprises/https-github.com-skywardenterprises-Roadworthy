@@ -67,55 +67,33 @@ struct SettingsView: View {
         } header: {
             Text("iCloud Sync")
         } footer: {
-            if case .unavailable = syncMonitor.state {
-                Text("Open the Settings app, tap your name at the top, then iCloud, to sign in.")
-            } else {
-                Text("Your data syncs automatically across your devices via iCloud. This can't be triggered manually — it happens on its own in the background.")
-            }
+            Text(syncMonitor.state.footer)
         }
     }
 
     @ViewBuilder
     private var syncStatusIcon: some View {
-        switch syncMonitor.state {
-        case .unknown:
-            Image(systemName: "icloud")
-                .foregroundStyle(.secondary)
-        case .unavailable:
-            Image(systemName: "icloud.slash")
-                .foregroundStyle(.orange)
-        case .syncing:
+        if let name = syncMonitor.state.systemImage {
+            Image(systemName: name)
+                .foregroundStyle(syncStatusTint)
+        } else {
             ProgressView()
-        case .synced:
-            Image(systemName: "checkmark.icloud.fill")
-                .foregroundStyle(.green)
-        case .error:
-            Image(systemName: "exclamationmark.icloud.fill")
-                .foregroundStyle(.orange)
         }
+    }
+
+    /// Kept outside the ViewBuilder so it can use plain `if` and `return`.
+    private var syncStatusTint: Color {
+        if syncMonitor.state.needsAttention { return .orange }
+        if case .synced = syncMonitor.state { return .green }
+        return .secondary
     }
 
     private var syncStatusTitle: String {
-        switch syncMonitor.state {
-        case .unknown: return "Checking Sync Status…"
-        case .unavailable: return "iCloud Sync Unavailable"
-        case .syncing: return "Syncing…"
-        case .synced: return "Synced"
-        case .error: return "Sync Issue"
-        }
+        syncMonitor.state.title
     }
 
     private var syncStatusSubtitle: String? {
-        switch syncMonitor.state {
-        case .unknown, .syncing:
-            return nil
-        case .unavailable(let reason):
-            return reason
-        case .synced(let date):
-            return "Last synced \(date.formatted(.relative(presentation: .named)))"
-        case .error(let message):
-            return message
-        }
+        syncMonitor.state.subtitle
     }
 }
 

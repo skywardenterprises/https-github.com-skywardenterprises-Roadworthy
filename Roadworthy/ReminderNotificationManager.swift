@@ -5,10 +5,27 @@ import UserNotifications
 /// notifications tied to recurring maintenance reminders.
 enum ReminderNotificationManager {
 
-    /// Ask the person to allow notifications. Safe to call repeatedly —
-    /// iOS only shows the system prompt the first time; after that it's a no-op.
-    static func requestAuthorizationIfNeeded() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    /// Checks whether notifications are actually allowed, asking for
+    /// permission first if it's never been decided. Returns whether
+    /// notifications can actually be delivered right now — the caller
+    /// should surface this to the person rather than assuming "on" in the
+    /// UI means notifications will really fire. Safe to call repeatedly:
+    /// iOS only shows the system prompt once; after that this just reports
+    /// the existing status.
+    @discardableResult
+    static func requestAuthorizationIfNeeded() async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined:
+            return (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        case .denied:
+            return false
+        @unknown default:
+            return false
+        }
     }
 
     /// Schedules (or re-schedules) the notification for a reminder, based on

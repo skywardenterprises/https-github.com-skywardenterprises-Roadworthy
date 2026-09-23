@@ -5,6 +5,7 @@ struct ExpenseListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
     @State private var expenseToEdit: ExpenseRecord?
+    @State private var pendingDeletion: [ExpenseRecord] = []
 
     private var sortedExpenses: [ExpenseRecord] {
         vehicle.expenses.sorted { $0.date > $1.date }
@@ -50,21 +51,23 @@ struct ExpenseListView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.primary)
                     }
-                    .onDelete(perform: deleteExpenses)
+                    .onDelete { offsets in pendingDeletion = offsets.map { sortedExpenses[$0] } }
                 }
             }
         }
         .navigationTitle("Expenses")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmDeletion(of: $pendingDeletion, noun: "expense") { deleteExpenses($0) }
         .sheet(item: $expenseToEdit) { expense in
             AddEditExpenseView(vehicle: vehicle, expense: expense)
         }
     }
 
-    private func deleteExpenses(at offsets: IndexSet) {
-        for index in offsets {
-            context.delete(sortedExpenses[index])
+    private func deleteExpenses(_ expenses: [ExpenseRecord]) {
+        for expense in expenses {
+            context.delete(expense)
         }
+        Haptics.delete()
     }
 }
 
@@ -81,29 +84,63 @@ struct AddEditExpenseView: View {
     @State private var amountText = ""
     @State private var notes = ""
     @State private var receiptPhotoData: Data?
+    @State private var isLoadingPhoto = false
+
+    @State private var showingValidationAlert = false
+    @State private var validationTitle = ""
+    @State private var validationMessage = ""
+    @State private var showingDeleteConfirm = false
+    @State private var showingDiscardConfirm = false
+    @State private var didLoad = false
+    @State private var loadedDraft: [AnyHashable] = []
 
     private var isEditing: Bool { expense != nil }
+
+    private var validationIssue: String? {
+        if (Double(amountText) ?? 0) <= 0 {
+            return "Enter the amount to save."
+        }
+        if isLoadingPhoto {
+            return "Waiting for the receipt photo to finish loading…"
+        }
+        return nil
+    }
+
+    private var draft: [AnyHashable] {
+        formSnapshot(category, date, Double(amountText), notes, receiptPhotoData)
+    }
+
+    private var hasChanges: Bool { didLoad && draft != loadedDraft }
 
     var body: some View {
         NavigationStack {
             Form {
-                Picker("Category", selection: $category) {
-                    ForEach(ExpenseCategory.allCases) { category in
-                        Text(category.rawValue).tag(category)
+                if didLoad, let validationIssue {
+                    Section { FormIssueRow(message: validationIssue) }
+                }
+
+                Section {
+                    Picker("Category", selection: $category) {
+                        ForEach(ExpenseCategory.allCases) { category in
+                            Text(category.rawValue).tag(category)
+                        }
                     }
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    HStack {
+                        Text("Amount")
+                        Spacer()
+                        AutoDecimalField(title: "Amount", text: $amountText)
+                    }
+                    TextField("Notes", text: $notes, axis: .vertical)
+                    ReceiptPhotoField(photoData: $receiptPhotoData, isLoading: $isLoadingPhoto)
                 }
-                DatePicker("Date", selection: $date, displayedComponents: .date)
-                HStack {
-                    Text("Amount")
-                    Spacer()
-                    AutoDecimalField(title: "Amount", text: $amountText)
-                }
-                TextField("Notes", text: $notes, axis: .vertical)
-                ReceiptPhotoField(photoData: $receiptPhotoData)
 
                 if isEditing {
                     Section {
                         Button("Delete Expense", role: .destructive) {
+                            showingDeleteConfirm = true
+                        }
+                        .deleteConfirmation("Delete this expense?", isPresented: $showingDeleteConfirm) {
                             deleteAndDismiss()
                         }
                     }
@@ -114,17 +151,31 @@ struct AddEditExpenseView: View {
             .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasChanges { showingDiscardConfirm = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
+                        .disabled(validationIssue != nil)
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
+            .alert(validationTitle, isPresented: $showingValidationAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(validationMessage)
+            }
         }
     }
 
     private func loadExistingValues() {
+        guard !didLoad else { return }
+        defer {
+            loadedDraft = draft
+            didLoad = true
+        }
         guard let expense else { return }
         category = expense.category
         date = expense.date
@@ -134,8 +185,16 @@ struct AddEditExpenseView: View {
     }
 
     private func save() {
-        let amount = Double(amountText) ?? 0
+        guard validationIssue == nil else { return }
+        // Same date rules as fuel and maintenance entries.
+        if let problem = EntryValidation.dateProblem(date, vehicle: vehicle) {
+            validationTitle = problem.title
+            validationMessage = problem.message
+            showingValidationAlert = true
+            return
+        }
 
+        let amount = Double(amountText) ?? 0
         if let expense {
             expense.category = category
             expense.date = date

@@ -273,7 +273,7 @@ private struct OverviewTab: View {
                         Divider().padding(.leading, 12)
                         infoRow("Year/Make/Model", "\(vehicle.year) \(vehicle.make) \(vehicle.model)")
                         Divider().padding(.leading, 12)
-                        infoRow("Mileage", formattedDistance(vehicle.currentMileage, unit: distanceUnit))
+                        infoRow("Odometer", formattedDistance(vehicle.currentMileage, unit: distanceUnit))
                         if !vehicle.vin.isEmpty {
                             Divider().padding(.leading, 12)
                             infoRow("VIN", vehicle.vin)
@@ -341,8 +341,8 @@ private struct OverviewTab: View {
         return value.formatted(.number.precision(.fractionLength(1)))
     }
 
-    // Mileage number: red once past due, orange within 2 weeks / 1,000 miles
-    // of being due, otherwise the normal secondary color.
+    // Mileage number: red once past due, orange within 2 weeks / 1,000
+    // miles of being due, otherwise the normal secondary color.
     private func mileageColor(_ reminder: MaintenanceReminder) -> Color {
         if reminder.isDue(currentMileage: vehicle.currentMileage) { return .red }
         if reminder.isDueSoon(currentMileage: vehicle.currentMileage) { return .orange }

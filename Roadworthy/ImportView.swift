@@ -21,14 +21,26 @@ struct ImportView: View {
     @State private var vehicleMappings: [String: VehicleMappingChoice] = [:]
     @State private var excludedFuelIndices: Set<Int> = []
     @State private var excludedMaintenanceIndices: Set<Int> = []
-    @State private var showingParseError = false
+
+    @State private var isParsing = false
+    @State private var isImporting = false
+    @State private var errorTitle = ""
+    @State private var errorMessage = ""
+    @State private var showingError = false
     @State private var showingSuccessAlert = false
     @State private var successMessage = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                if let importResult {
+                if isParsing {
+                    Section {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Reading file…")
+                        }
+                    }
+                } else if let importResult {
                     resultsSection(importResult)
                 } else {
                     sourceSection
@@ -39,18 +51,20 @@ struct ImportView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(isImporting)
                 }
             }
+            .interactiveDismissDisabled(isImporting)
             .fileImporter(
                 isPresented: $showingFilePicker,
-                allowedContentTypes: [.commaSeparatedText, .plainText, .text]
+                allowedContentTypes: [.commaSeparatedText, .tabSeparatedText, .plainText, .text]
             ) { result in
                 handleFileSelection(result)
             }
-            .alert("Couldn't Read File", isPresented: $showingParseError) {
+            .alert(errorTitle, isPresented: $showingError) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("This doesn't look like a valid \(selectedSource.rawValue) export. Double check you selected the right file.")
+                Text(errorMessage)
             }
             .alert("Import Complete", isPresented: $showingSuccessAlert) {
                 Button("Done") { dismiss() }
@@ -59,6 +73,8 @@ struct ImportView: View {
             }
         }
     }
+
+    // MARK: - Sections
 
     private var sourceSection: some View {
         Group {
@@ -88,13 +104,16 @@ struct ImportView: View {
         Group {
             Section {
                 Text("Found \(result.fuelEntries.count) fuel-up\(result.fuelEntries.count == 1 ? "" : "s") and \(result.maintenanceEntries.count) maintenance record\(result.maintenanceEntries.count == 1 ? "" : "s") across \(result.vehicleNames.count) vehicle\(result.vehicleNames.count == 1 ? "" : "s").")
-                if !excludedFuelIndices.isEmpty || !excludedMaintenanceIndices.isEmpty {
-                    Text("\(excludedFuelIndices.count + excludedMaintenanceIndices.count) flagged as possible duplicates and excluded by default — see below.")
+                let excludedCount = excludedFuelIndices.count + excludedMaintenanceIndices.count
+                if excludedCount > 0 {
+                    Text("\(excludedCount) flagged as possible duplicates and excluded by default — see below.")
+                        .foregroundStyle(.orange)
+                }
+                if !result.skippedRows.isEmpty {
+                    Text("\(result.skippedRows.count) row\(result.skippedRows.count == 1 ? "" : "s") couldn't be read and won't be imported — see below.")
                         .foregroundStyle(.orange)
                 }
             }
-
-            duplicatesSection(result)
 
             Section {
                 ForEach(result.vehicleNames, id: \.self) { name in
@@ -103,8 +122,8 @@ struct ImportView: View {
                             .font(.subheadline)
                             .fontWeight(.medium)
                         Picker("", selection: Binding(
-                            get: { vehicleMappings[name] ?? .createNew },
-                            set: { vehicleMappings[name] = $0 }
+                            get: { mapping(for: name) },
+                            set: { updateMapping(name, to: $0) }
                         )) {
                             Text("Create New Vehicle").tag(VehicleMappingChoice.createNew)
                             ForEach(existingVehicles) { vehicle in
@@ -118,17 +137,34 @@ struct ImportView: View {
             } header: {
                 Text("Match Vehicles")
             } footer: {
-                Text("For each vehicle found in the file, choose whether to add its history to an existing vehicle or create a new one.")
+                Text("For each vehicle found in the file, choose whether to add its history to an existing vehicle or create a new one. A vehicle whose name matches one you already have is matched automatically.")
             }
+
+            duplicatesSection(result)
+            warningsSection(result)
+            skippedRowsSection(result)
 
             Section {
                 Button {
                     performImport(result)
                 } label: {
-                    Text("Import")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
+                    HStack {
+                        Spacer()
+                        if isImporting {
+                            ProgressView()
+                        } else {
+                            Text("Import").fontWeight(.semibold)
+                        }
+                        Spacer()
+                    }
                 }
+                // Disabled while running so a second tap can't import twice.
+                .disabled(isImporting)
+
+                Button("Choose a Different File") {
+                    resetToStart()
+                }
+                .disabled(isImporting)
             }
         }
     }
@@ -154,6 +190,11 @@ struct ImportView: View {
                             Text("\(entry.gallons.formatted(.number.precision(.fractionLength(1)))) gal  •  \(entry.vehicleName)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let reason = entry.duplicateReason {
+                                Text(reason.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                     }
                 }
@@ -171,45 +212,195 @@ struct ImportView: View {
                             Text("\(entry.title)  •  \(entry.vehicleName)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let reason = entry.duplicateReason {
+                                Text(reason.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                     }
                 }
             } header: {
                 Text("Possible Duplicates")
             } footer: {
-                Text("These entries share a date and near-identical mileage with another entry in this file — often caused by a bug or accidental double-entry in the source app. Excluded from import by default; turn one back on if it's actually a separate, legitimate entry.")
+                Text("These entries match another row in this file, or a record already saved on the vehicle they're going to. Excluded from import by default; turn one back on if it's actually a separate, legitimate entry.")
             }
         }
+    }
+
+    /// Entries that will be imported but have something worth checking.
+    @ViewBuilder
+    private func warningsSection(_ result: ImportResult) -> some View {
+        let fuelWithWarnings = result.fuelEntries.filter { !$0.allWarnings.isEmpty && !$0.isPossibleDuplicate }
+        let maintenanceWithWarnings = result.maintenanceEntries.filter { !$0.allWarnings.isEmpty && !$0.isPossibleDuplicate }
+        let total = fuelWithWarnings.count + maintenanceWithWarnings.count
+
+        if total > 0 {
+            Section {
+                DisclosureGroup("\(total) entr\(total == 1 ? "y" : "ies") to review") {
+                    ForEach(fuelWithWarnings.prefix(200), id: \.sourceRow) { entry in
+                        warningRow(row: entry.sourceRow, summary: "Fuel-up, \(entry.date.formatted(date: .abbreviated, time: .omitted))", warnings: entry.allWarnings)
+                    }
+                    ForEach(maintenanceWithWarnings.prefix(200), id: \.sourceRow) { entry in
+                        warningRow(row: entry.sourceRow, summary: "\(entry.title), \(entry.date.formatted(date: .abbreviated, time: .omitted))", warnings: entry.allWarnings)
+                    }
+                }
+            } header: {
+                Text("Needs Review")
+            } footer: {
+                Text("These will be imported. Each one has something that looked off, like a missing value that was filled in or an odometer reading that doesn't line up. You can edit them after importing.")
+            }
+        }
+    }
+
+    private func warningRow(row: Int, summary: String, warnings: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Row \(row): \(summary)")
+                .font(.subheadline)
+            ForEach(warnings, id: \.self) { warning in
+                Text(warning)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func skippedRowsSection(_ result: ImportResult) -> some View {
+        if !result.skippedRows.isEmpty {
+            Section {
+                DisclosureGroup("\(result.skippedRows.count) row\(result.skippedRows.count == 1 ? "" : "s") not imported") {
+                    ForEach(result.skippedRows.prefix(200)) { skipped in
+                        Text("Row \(skipped.row): \(skipped.reason)")
+                            .font(.caption)
+                    }
+                }
+            } header: {
+                Text("Couldn't Read")
+            } footer: {
+                Text("Row numbers match the file as opened in a spreadsheet app, so you can find and fix these in the original file.")
+            }
+        }
+    }
+
+    // MARK: - Vehicle mapping
+
+    /// A vehicle in the file whose name matches an existing vehicle's
+    /// nickname (ignoring case and extra spaces) defaults to that vehicle,
+    /// so importing the same file twice doesn't create a duplicate vehicle
+    /// with a full copy of its history.
+    private func defaultMapping(for name: String) -> VehicleMappingChoice {
+        let key = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let match = existingVehicles.first(where: {
+            $0.nickname.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key
+        }) {
+            return .existing(match)
+        }
+        return .createNew
+    }
+
+    private func mapping(for name: String) -> VehicleMappingChoice {
+        vehicleMappings[name] ?? defaultMapping(for: name)
+    }
+
+    private func updateMapping(_ name: String, to choice: VehicleMappingChoice) {
+        vehicleMappings[name] = choice
+        reviewAgainstMappings()
+    }
+
+    /// Re-checks every entry against the vehicles it's mapped to: duplicates
+    /// of records already saved there, and the same date and odometer rules
+    /// manual entry uses. Exclusions are reset to the flagged set each time.
+    private func reviewAgainstMappings() {
+        guard let current = importResult else { return }
+        var destinations: [String: Vehicle] = [:]
+        for name in current.vehicleNames {
+            if case .existing(let vehicle) = mapping(for: name) {
+                destinations[name] = vehicle
+            }
+        }
+        let reviewed = FuellyImporter.review(current, destinations: destinations)
+        importResult = reviewed
+        excludedFuelIndices = Set(reviewed.fuelEntries.indices.filter { reviewed.fuelEntries[$0].isPossibleDuplicate })
+        excludedMaintenanceIndices = Set(reviewed.maintenanceEntries.indices.filter { reviewed.maintenanceEntries[$0].isPossibleDuplicate })
+    }
+
+    // MARK: - File handling
+
+    /// Tries the encodings real-world CSV files arrive in: UTF-16 when the
+    /// file says so (Excel's "Unicode Text"), then UTF-8, then Windows-1252
+    /// (Excel on Windows saving "CSV" with accented characters).
+    private func decodeText(_ data: Data) -> String? {
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
+            return String(data: data, encoding: .utf16)
+        }
+        return String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .windowsCP1252)
+    }
+
+    private func showError(_ title: String, _ message: String) {
+        errorTitle = title
+        errorMessage = message
+        showingError = true
     }
 
     private func handleFileSelection(_ result: Result<URL, Error>) {
         switch result {
         case .success(let url):
             let didAccess = url.startAccessingSecurityScopedResource()
-            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else {
-                showingParseError = true
+            let data = try? Data(contentsOf: url)
+            if didAccess { url.stopAccessingSecurityScopedResource() }
+
+            guard let data else {
+                showError("Couldn't Open File", "Roadworthy couldn't open that file. If it's stored in iCloud Drive or another cloud service, make sure it has finished downloading, then try again.")
                 return
             }
-            let parsed = FuellyImporter.parse(csvText: text)
-            if parsed.vehicleNames.isEmpty {
-                showingParseError = true
+            guard let text = decodeText(data) else {
+                showError("Couldn't Read File", "That file isn't in a text format Roadworthy can read. Export it from \(selectedSource.rawValue) again as a CSV file.")
                 return
             }
-            importResult = parsed
-            excludedFuelIndices = Set(parsed.fuelEntries.indices.filter { parsed.fuelEntries[$0].isPossibleDuplicate })
-            excludedMaintenanceIndices = Set(parsed.maintenanceEntries.indices.filter { parsed.maintenanceEntries[$0].isPossibleDuplicate })
+
+            // Show "Reading file…" before parsing starts. Parsing still runs
+            // on the main actor (the importer uses model types and helpers
+            // that are main-actor isolated in this project), but the brief
+            // pause lets the progress indicator appear first.
+            isParsing = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(50))
+                let parsed = FuellyImporter.parse(csvText: text)
+                isParsing = false
+
+                if let fileError = parsed.fileError {
+                    showError("Couldn't Read File", fileError)
+                    return
+                }
+                importResult = parsed
+                vehicleMappings = [:]
+                reviewAgainstMappings()
+            }
         case .failure:
-            showingParseError = true
+            showError("Couldn't Open File", "Roadworthy couldn't open that file. Please try again.")
         }
     }
 
+    private func resetToStart() {
+        importResult = nil
+        vehicleMappings = [:]
+        excludedFuelIndices = []
+        excludedMaintenanceIndices = []
+    }
+
+    // MARK: - Import
+
     private func performImport(_ result: ImportResult) {
+        guard !isImporting else { return }
+        isImporting = true
+
         var vehiclesByName: [String: Vehicle] = [:]
         for name in result.vehicleNames {
-            switch vehicleMappings[name] ?? .createNew {
+            switch mapping(for: name) {
             case .createNew:
-                vehiclesByName[name] = createVehicle(named: name)
+                vehiclesByName[name] = createVehicle(named: name, in: result)
             case .existing(let vehicle):
                 vehiclesByName[name] = vehicle
             }
@@ -260,21 +451,39 @@ struct ImportView: View {
             maintenanceCount += 1
         }
 
+        // Save explicitly so a failure is reported instead of being lost to
+        // autosave after "Import Complete" has already been shown.
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            isImporting = false
+            showError("Import Failed", "Nothing was imported. The data couldn't be saved (\((error as NSError).domain) \((error as NSError).code)). Please try again, and contact support if it keeps happening.")
+            return
+        }
+
         Haptics.success()
-        successMessage = "Imported \(fuelCount) fuel-up\(fuelCount == 1 ? "" : "s") and \(maintenanceCount) maintenance record\(maintenanceCount == 1 ? "" : "s")."
+        var message = "Imported \(fuelCount) fuel-up\(fuelCount == 1 ? "" : "s") and \(maintenanceCount) maintenance record\(maintenanceCount == 1 ? "" : "s")."
+        let skipped = result.skippedRows.count
+        if skipped > 0 {
+            message += " \(skipped) row\(skipped == 1 ? " was" : "s were") skipped because they couldn't be read."
+        }
+        successMessage = message
+        importResult = nil
+        isImporting = false
         showingSuccessAlert = true
     }
 
     /// Fuelly's vehicle names are free text like "2019 4Runner TRD" — this
     /// makes a best-effort guess at Year/Make/Model, which the person can
-    /// refine afterward in Edit Vehicle.
-    private func createVehicle(named name: String) -> Vehicle {
-        var year = Calendar.current.component(.year, from: .now)
+    /// refine afterward in Edit Vehicle. With no year in the name, the year
+    /// of the vehicle's earliest entry is used instead of the current year,
+    /// so imported history doesn't fail the model-year date check.
+    private func createVehicle(named name: String, in result: ImportResult) -> Vehicle {
+        let year = FuellyImporter.suggestedModelYear(forVehicle: name, in: result)
         var remainder = name
-
-        let words = name.split(separator: " ", maxSplits: 1)
-        if let first = words.first, first.count == 4, let parsedYear = Int(first), parsedYear > 1900 && parsedYear < 2100 {
-            year = parsedYear
+        if FuellyImporter.leadingYear(in: name) != nil {
+            let words = name.split(separator: " ", maxSplits: 1)
             remainder = words.count > 1 ? String(words[1]) : ""
         }
 

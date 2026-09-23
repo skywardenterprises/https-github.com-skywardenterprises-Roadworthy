@@ -20,6 +20,7 @@ struct AddEditVehicleView: View {
     @State private var purchaseDate = Date.now
     @State private var photoData: Data?
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isLoadingPhoto = false
     @State private var showingPhotoOptions = false
     @State private var showingCamera = false
     @State private var showingPhotoLibraryPicker = false
@@ -29,23 +30,70 @@ struct AddEditVehicleView: View {
     @State private var purchasePriceText = ""
     @State private var currentValueText = ""
 
+    @State private var didLoad = false
+    @State private var loadedDraft: [AnyHashable] = []
+    @State private var showingDiscardConfirm = false
+
     private var isEditing: Bool { vehicle != nil }
 
-    // Current year first, going back to 1950 — e.g. 2026, 2025, 2024, ...
+    /// Includes next calendar year, since model-year vehicles go on sale the
+    /// year before. A stored year outside the range (for example from an
+    /// import) is added so the picker never shows blank.
     private var availableYears: [Int] {
         let currentYear = Calendar.current.component(.year, from: .now)
-        return Array((1950...currentYear).reversed())
+        var years = Array((1950...(currentYear + 1)).reversed())
+        if !years.contains(year) {
+            years.append(year)
+            years.sort(by: >)
+        }
+        return years
     }
+
+    private var enteredMileage: Int {
+        convertToMiles(DigitsField.value(of: mileageText) ?? 0, from: distanceUnit)
+    }
+
+    private var validationIssue: String? {
+        if make.trimmed.isEmpty || model.trimmed.isEmpty {
+            return "Enter a make and model to save."
+        }
+        if let vehicle, enteredMileage < vehicle.highestLoggedMileage {
+            return "Current mileage can't be lower than the highest logged reading (\(formattedDistance(vehicle.highestLoggedMileage, unit: distanceUnit)))."
+        }
+        if isLoadingPhoto {
+            return "Waiting for the photo to finish loading…"
+        }
+        return nil
+    }
+
+    /// Normalized values (parsed numbers, uppercased IDs) so formatting that
+    /// happens on load doesn't count as an edit.
+    private var draft: [AnyHashable] {
+        formSnapshot(
+            nickname, make, model, year, vin.uppercased(), licensePlate.uppercased(),
+            DigitsField.value(of: mileageText), purchaseDate, photoData, isActive, vehicleType,
+            Double(purchasePriceText), Double(currentValueText)
+        )
+    }
+
+    private var hasChanges: Bool { didLoad && draft != loadedDraft }
 
     var body: some View {
         NavigationStack {
             Form {
+                if didLoad, let validationIssue {
+                    Section { FormIssueRow(message: validationIssue) }
+                }
+
                 Section("Photo") {
                     Button {
                         showingPhotoOptions = true
                     } label: {
                         HStack {
-                            if let photoData, let uiImage = UIImage(data: photoData) {
+                            if isLoadingPhoto {
+                                ProgressView()
+                                    .frame(width: 60, height: 60)
+                            } else if let photoData, let uiImage = UIImage(data: photoData) {
                                 Image(uiImage: uiImage)
                                     .resizable()
                                     .scaledToFill()
@@ -59,13 +107,10 @@ struct AddEditVehicleView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                    .disabled(isLoadingPhoto)
                     .confirmationDialog("Vehicle Photo", isPresented: $showingPhotoOptions, titleVisibility: .visible) {
                         Button("Take Photo") { showingCamera = true }
-                        Button("Choose from Library") {
-                            // The PhotosPicker below is triggered by binding a
-                            // Bool to it, same pattern as the camera sheet.
-                            showingPhotoLibraryPicker = true
-                        }
+                        Button("Choose from Library") { showingPhotoLibraryPicker = true }
                         if photoData != nil {
                             Button("View Photo") { showingPhotoViewer = true }
                             Button("Remove Photo", role: .destructive) { photoData = nil }
@@ -77,13 +122,7 @@ struct AddEditVehicleView: View {
                             .ignoresSafeArea()
                     }
                     .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
-                    .onChange(of: selectedPhoto) { _, newItem in
-                        Task {
-                            if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                                photoData = data
-                            }
-                        }
-                    }
+                    .loadsPickedPhoto($selectedPhoto, into: $photoData, isLoading: $isLoadingPhoto)
                     .sheet(isPresented: $showingPhotoViewer) {
                         if let photoData, let uiImage = UIImage(data: photoData) {
                             NavigationStack {
@@ -135,17 +174,11 @@ struct AddEditVehicleView: View {
                         .onChange(of: licensePlate) { _, newValue in
                             licensePlate = newValue.uppercased()
                         }
-                    HStack {
-                        Text("Current Mileage (\(distanceUnit.rawValue))")
-                        Spacer()
-                        TextField("Mileage", text: $mileageText)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .onChange(of: mileageText) { _, newValue in
-                                let digitsOnly = newValue.filter(\.isNumber)
-                                mileageText = digitsOnly.isEmpty ? "" : (Int(digitsOnly)?.formatted() ?? digitsOnly)
-                            }
-                    }
+                    DigitsField(
+                        label: "Current Mileage (\(distanceUnit.rawValue))",
+                        placeholder: "Mileage",
+                        text: $mileageText
+                    )
                     DatePicker("Purchase Date", selection: $purchaseDate, displayedComponents: .date)
                 }
 
@@ -192,18 +225,28 @@ struct AddEditVehicleView: View {
             .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasChanges { showingDiscardConfirm = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(make.isEmpty || model.isEmpty)
+                        .disabled(validationIssue != nil)
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
         }
     }
 
     private func loadExistingValues() {
+        // onAppear can run again (for example after another sheet closes).
+        // Loading twice would overwrite what the person has typed.
+        guard !didLoad else { return }
+        defer {
+            loadedDraft = draft
+            didLoad = true
+        }
         guard let vehicle else { return }
         nickname = vehicle.nickname
         make = vehicle.make
@@ -211,7 +254,7 @@ struct AddEditVehicleView: View {
         year = vehicle.year
         vin = vehicle.vin
         licensePlate = vehicle.licensePlate
-        mileageText = vehicle.currentMileage == 0 ? "" : convertFromMiles(vehicle.currentMileage, to: distanceUnit).formatted()
+        mileageText = vehicle.currentMileage == 0 ? "" : String(convertFromMiles(vehicle.currentMileage, to: distanceUnit))
         purchaseDate = vehicle.purchaseDate
         photoData = vehicle.photoData
         isActive = vehicle.isActive
@@ -221,18 +264,18 @@ struct AddEditVehicleView: View {
     }
 
     private func save() {
-        let enteredValue = Int(mileageText.filter(\.isNumber)) ?? 0
-        let currentMileage = convertToMiles(enteredValue, from: distanceUnit)
+        guard validationIssue == nil else { return }
+        let currentMileage = enteredMileage
         let purchasePrice = Double(purchasePriceText) ?? 0
         let currentValue = currentValueText.isEmpty ? nil : Double(currentValueText)
 
         if let vehicle {
-            vehicle.nickname = nickname
-            vehicle.make = make
-            vehicle.model = model
+            vehicle.nickname = nickname.trimmed
+            vehicle.make = make.trimmed
+            vehicle.model = model.trimmed
             vehicle.year = year
-            vehicle.vin = vin
-            vehicle.licensePlate = licensePlate
+            vehicle.vin = vin.trimmed
+            vehicle.licensePlate = licensePlate.trimmed
             vehicle.currentMileage = currentMileage
             vehicle.purchaseDate = purchaseDate
             vehicle.photoData = photoData
@@ -259,12 +302,12 @@ struct AddEditVehicleView: View {
             }
         } else {
             let newVehicle = Vehicle(
-                nickname: nickname,
-                make: make,
-                model: model,
+                nickname: nickname.trimmed,
+                make: make.trimmed,
+                model: model.trimmed,
                 year: year,
-                vin: vin,
-                licensePlate: licensePlate,
+                vin: vin.trimmed,
+                licensePlate: licensePlate.trimmed,
                 currentMileage: currentMileage,
                 purchaseDate: purchaseDate,
                 photoData: photoData,

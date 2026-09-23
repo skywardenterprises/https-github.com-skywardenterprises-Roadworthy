@@ -6,6 +6,7 @@ struct TripListView: View {
     let vehicle: Vehicle
     @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
     @State private var tripToEdit: TripLog?
+    @State private var pendingDeletion: [TripLog] = []
 
     // The IRS standard mileage rate changes periodically (sometimes mid-year).
     // Stored as a simple device setting so it's easy to update without an app update.
@@ -35,9 +36,9 @@ struct TripListView: View {
                 List {
                     Section {
                         HStack {
-                            Text("Business Miles")
+                            Text("Business \(distanceUnit.displayName)")
                             Spacer()
-                            Text("\(totalBusinessMiles.formatted()) mi")
+                            Text(formattedDistance(totalBusinessMiles, unit: distanceUnit))
                                 .foregroundStyle(.secondary)
                         }
                         HStack {
@@ -69,13 +70,14 @@ struct TripListView: View {
                             .buttonStyle(.plain)
                             .foregroundStyle(.primary)
                         }
-                        .onDelete(perform: deleteTrips)
+                        .onDelete { offsets in pendingDeletion = offsets.map { sortedTrips[$0] } }
                     }
                 }
             }
         }
         .navigationTitle("Trips")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmDeletion(of: $pendingDeletion, noun: "trip") { deleteTrips($0) }
         .sheet(item: $tripToEdit) { trip in
             AddEditTripView(vehicle: vehicle, trip: trip)
         }
@@ -118,10 +120,11 @@ struct TripListView: View {
         }
     }
 
-    private func deleteTrips(at offsets: IndexSet) {
-        for index in offsets {
-            context.delete(sortedTrips[index])
+    private func deleteTrips(_ trips: [TripLog]) {
+        for trip in trips {
+            context.delete(trip)
         }
+        Haptics.delete()
     }
 }
 
@@ -142,39 +145,69 @@ struct AddEditTripView: View {
     @State private var fromLocation = ""
     @State private var toLocation = ""
 
+    @State private var showingValidationAlert = false
+    @State private var validationTitle = ""
+    @State private var validationMessage = ""
+    @State private var showingDeleteConfirm = false
+    @State private var showingDiscardConfirm = false
+    @State private var didLoad = false
+    @State private var loadedDraft: [AnyHashable] = []
+
     private var isEditing: Bool { trip != nil }
-    private var milesDriven: Int {
-        let start = Int(startMileageText) ?? 0
-        let end = Int(endMileageText) ?? 0
-        return max(0, end - start)
+
+    private var enteredStart: Int? { DigitsField.value(of: startMileageText) }
+    private var enteredEnd: Int? { DigitsField.value(of: endMileageText) }
+
+    /// Distance in the person's display unit, for the Distance row.
+    private var displayedDistance: Int {
+        max(0, (enteredEnd ?? 0) - (enteredStart ?? 0))
     }
-    private var canSave: Bool {
-        guard let start = Int(startMileageText), let end = Int(endMileageText), end > start else { return false }
-        if purpose == .business && businessPurposeNote.isEmpty { return false }
-        return true
+
+    private var validationIssue: String? {
+        guard let start = enteredStart, let end = enteredEnd else {
+            return "Enter the start and end odometer readings to save."
+        }
+        if end <= start {
+            return "The end odometer must be higher than the start."
+        }
+        // Distances are stored in whole miles, so a very short trip entered
+        // in kilometers can round to zero.
+        if convertToMiles(end, from: distanceUnit) <= convertToMiles(start, from: distanceUnit) {
+            return "Trips shorter than 1 mile can't be saved, because distances are stored in whole miles."
+        }
+        if purpose == .business && businessPurposeNote.trimmed.isEmpty {
+            return "Enter the business purpose. The IRS requires one for each business trip."
+        }
+        return nil
     }
+
+    private var draft: [AnyHashable] {
+        formSnapshot(date, enteredStart, enteredEnd, purpose, businessPurposeNote, fromLocation, toLocation)
+    }
+
+    private var hasChanges: Bool { didLoad && draft != loadedDraft }
 
     var body: some View {
         NavigationStack {
             Form {
+                if didLoad, let validationIssue {
+                    Section { FormIssueRow(message: validationIssue) }
+                }
+
                 Section {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
-                    HStack {
-                        Text("Start Mileage (\(distanceUnit.rawValue))")
-                        Spacer()
-                        TextField("Mileage", text: $startMileageText)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    HStack {
-                        Text("End Mileage (\(distanceUnit.rawValue))")
-                        Spacer()
-                        TextField("Mileage", text: $endMileageText)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    if milesDriven > 0 {
-                        LabeledContent("Distance", value: "\(milesDriven.formatted()) \(distanceUnit.rawValue)")
+                    DigitsField(
+                        label: "Start Odometer (\(distanceUnit.rawValue))",
+                        placeholder: "Start Odometer",
+                        text: $startMileageText
+                    )
+                    DigitsField(
+                        label: "End Odometer (\(distanceUnit.rawValue))",
+                        placeholder: "End Odometer",
+                        text: $endMileageText
+                    )
+                    if displayedDistance > 0 {
+                        LabeledContent("Distance", value: "\(displayedDistance.formatted()) \(distanceUnit.rawValue)")
                     }
                 }
 
@@ -202,6 +235,9 @@ struct AddEditTripView: View {
                 if isEditing {
                     Section {
                         Button("Delete Trip", role: .destructive) {
+                            showingDeleteConfirm = true
+                        }
+                        .deleteConfirmation("Delete this trip?", isPresented: $showingDeleteConfirm) {
                             deleteAndDismiss()
                         }
                     }
@@ -212,18 +248,31 @@ struct AddEditTripView: View {
             .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasChanges { showingDiscardConfirm = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(!canSave)
+                        .disabled(validationIssue != nil)
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
+            .alert(validationTitle, isPresented: $showingValidationAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(validationMessage)
+            }
         }
     }
 
     private func loadExistingValues() {
+        guard !didLoad else { return }
+        defer {
+            loadedDraft = draft
+            didLoad = true
+        }
         guard let trip else {
             startMileageText = vehicle.currentMileage == 0 ? "" : String(convertFromMiles(vehicle.currentMileage, to: distanceUnit))
             return
@@ -238,26 +287,38 @@ struct AddEditTripView: View {
     }
 
     private func save() {
-        let start = convertToMiles(Int(startMileageText) ?? 0, from: distanceUnit)
-        let end = convertToMiles(Int(endMileageText) ?? 0, from: distanceUnit)
+        guard validationIssue == nil, let startValue = enteredStart, let endValue = enteredEnd else { return }
+        let start = convertToMiles(startValue, from: distanceUnit)
+        let end = convertToMiles(endValue, from: distanceUnit)
 
+        // Same date rules as fuel and maintenance, plus a check that the trip's
+        // readings fit with fuel and maintenance logs on other days.
+        if let problem = EntryValidation.dateProblem(date, vehicle: vehicle)
+            ?? EntryValidation.tripProblem(date: date, start: start, end: end, vehicle: vehicle, unit: distanceUnit) {
+            validationTitle = problem.title
+            validationMessage = problem.message
+            showingValidationAlert = true
+            return
+        }
+
+        let note = purpose == .business ? businessPurposeNote.trimmed : ""
         if let trip {
             trip.date = date
             trip.startMileage = start
             trip.endMileage = end
             trip.purpose = purpose
-            trip.businessPurposeNote = purpose == .business ? businessPurposeNote : ""
-            trip.fromLocation = fromLocation
-            trip.toLocation = toLocation
+            trip.businessPurposeNote = note
+            trip.fromLocation = fromLocation.trimmed
+            trip.toLocation = toLocation.trimmed
         } else {
             let newTrip = TripLog(
                 date: date,
                 startMileage: start,
                 endMileage: end,
                 purpose: purpose,
-                businessPurposeNote: purpose == .business ? businessPurposeNote : "",
-                fromLocation: fromLocation,
-                toLocation: toLocation
+                businessPurposeNote: note,
+                fromLocation: fromLocation.trimmed,
+                toLocation: toLocation.trimmed
             )
             newTrip.vehicle = vehicle
             context.insert(newTrip)

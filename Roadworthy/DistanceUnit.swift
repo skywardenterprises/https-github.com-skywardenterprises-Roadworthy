@@ -15,8 +15,13 @@ enum DistanceUnit: String, CaseIterable, Identifiable {
     }
 }
 
-nonisolated private let milesPerKilometer = 0.621371
-nonisolated private let kilometersPerMile = 1.60934
+/// Exact by definition. Both conversions use this one constant so that
+/// converting miles to km for display and back to miles on save always
+/// returns the original value. The previous pair of rounded constants
+/// (1.60934 and 0.621371) weren't exact inverses, so readings from about
+/// 68,000 miles up shifted by a mile each time a record was opened and
+/// saved in kilometer mode.
+nonisolated private let kilometersPerMile = 1.609344
 
 /// Converts a value already stored in miles into the person's preferred
 /// unit, for display.
@@ -37,7 +42,7 @@ nonisolated func convertToMiles(_ value: Int, from unit: DistanceUnit) -> Int {
     case .miles:
         return value
     case .kilometers:
-        return Int((Double(value) * milesPerKilometer).rounded())
+        return Int((Double(value) / kilometersPerMile).rounded())
     }
 }
 

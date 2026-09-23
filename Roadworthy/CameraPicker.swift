@@ -35,7 +35,8 @@ struct CameraPicker: UIViewControllerRepresentable {
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
             if let image = info[.originalImage] as? UIImage {
-                parent.imageData = image.jpegData(compressionQuality: 0.8)
+                // Same size and quality as library photos (see ImageNormalizer).
+                parent.imageData = ImageNormalizer.jpegData(from: image)
             }
             parent.dismiss()
         }

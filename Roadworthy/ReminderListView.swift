@@ -1,11 +1,13 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct ReminderListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
     @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
     @State private var reminderToEdit: MaintenanceReminder?
+    @State private var pendingDeletion: [MaintenanceReminder] = []
 
     // Reminders with the least mileage remaining show first (this also
     // naturally surfaces overdue reminders first, since overdue mileage is
@@ -36,12 +38,13 @@ struct ReminderListView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.primary)
                     }
-                    .onDelete(perform: deleteReminders)
+                    .onDelete { offsets in pendingDeletion = offsets.map { sortedReminders[$0] } }
                 }
             }
         }
         .navigationTitle("Reminders")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmDeletion(of: $pendingDeletion, noun: "reminder") { deleteReminders($0) }
         .sheet(item: $reminderToEdit) { reminder in
             AddEditReminderView(vehicle: vehicle, reminder: reminder)
         }
@@ -90,12 +93,12 @@ struct ReminderListView: View {
         reminder.isDue(currentMileage: vehicle.currentMileage) ? .red : .secondary
     }
 
-    private func deleteReminders(at offsets: IndexSet) {
-        for index in offsets {
-            let reminder = sortedReminders[index]
+    private func deleteReminders(_ reminders: [MaintenanceReminder]) {
+        for reminder in reminders {
             ReminderNotificationManager.cancel(for: reminder)
             context.delete(reminder)
         }
+        Haptics.delete()
     }
 }
 
@@ -121,12 +124,68 @@ struct AddEditReminderView: View {
 
     @State private var notificationsEnabled = false
     @State private var notifyDaysBefore = 0
+    @State private var showingNotificationPermissionAlert = false
+
+    @State private var showingDeleteConfirm = false
+    @State private var showingDiscardConfirm = false
+    @State private var didLoad = false
+    @State private var loadedDraft: [AnyHashable] = []
 
     private var isEditing: Bool { reminder != nil }
+
+    private var enteredIntervalMiles: Int {
+        convertToMiles(DigitsField.value(of: intervalMilesText) ?? 0, from: distanceUnit)
+    }
+    private var enteredIntervalMonths: Int { DigitsField.value(of: intervalMonthsText) ?? 0 }
+
+    /// Notifications only apply to date-based repeats. If date repeat is off,
+    /// the hidden toggle is ignored rather than saved.
+    private var effectiveNotificationsEnabled: Bool { repeatByDate && notificationsEnabled }
+
+    private var validationIssue: String? {
+        if !repeatByMileage && !repeatByDate {
+            return "Turn on repeat by \(distanceUnit.displayName.lowercased()), by date, or both."
+        }
+        if repeatByMileage && enteredIntervalMiles <= 0 {
+            return "Enter how many \(distanceUnit.displayName.lowercased()) between services."
+        }
+        if repeatByDate && enteredIntervalMonths <= 0 {
+            return "Enter how many months between services."
+        }
+        return nil
+    }
+
+    /// True when the calculated notification date has already passed. The
+    /// scheduler skips those, so the person is told instead of expecting a
+    /// notification that won't arrive.
+    private var notificationDateHasPassed: Bool {
+        guard effectiveNotificationsEnabled, enteredIntervalMonths > 0 else { return false }
+        let baseline = reminder?.baselineDate ?? .now
+        let calendar = Calendar.current
+        guard let due = calendar.date(byAdding: .month, value: enteredIntervalMonths, to: baseline),
+              let fire = calendar.date(byAdding: .day, value: -notifyDaysBefore, to: due)
+        else { return false }
+        return fire <= .now
+    }
+
+    private var draft: [AnyHashable] {
+        formSnapshot(
+            type, title, otherTypeDescription, notes,
+            repeatByMileage, DigitsField.value(of: intervalMilesText),
+            repeatByDate, DigitsField.value(of: intervalMonthsText),
+            effectiveNotificationsEnabled, notifyDaysBefore
+        )
+    }
+
+    private var hasChanges: Bool { didLoad && draft != loadedDraft }
 
     var body: some View {
         NavigationStack {
             Form {
+                if didLoad, let validationIssue {
+                    Section { FormIssueRow(message: validationIssue) }
+                }
+
                 Section {
                     Picker("Type", selection: $type) {
                         ForEach(MaintenanceType.allCases) { type in
@@ -143,30 +202,26 @@ struct AddEditReminderView: View {
                 Section("Repeat By \(distanceUnit.displayName)") {
                     Toggle("Repeat Every X \(distanceUnit.displayName)", isOn: $repeatByMileage)
                     if repeatByMileage {
-                        HStack {
-                            Text("Every")
-                            Spacer()
-                            TextField(distanceUnit.displayName, text: $intervalMilesText)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                            Text(distanceUnit.rawValue)
-                                .foregroundStyle(.secondary)
-                        }
+                        DigitsField(
+                            label: "Every",
+                            placeholder: distanceUnit.displayName,
+                            text: $intervalMilesText,
+                            maxDigits: 6,
+                            suffix: distanceUnit.rawValue
+                        )
                     }
                 }
 
                 Section("Repeat By Date") {
                     Toggle("Repeat Every X Months", isOn: $repeatByDate)
                     if repeatByDate {
-                        HStack {
-                            Text("Every")
-                            Spacer()
-                            TextField("Months", text: $intervalMonthsText)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                            Text("mo")
-                                .foregroundStyle(.secondary)
-                        }
+                        DigitsField(
+                            label: "Every",
+                            placeholder: "Months",
+                            text: $intervalMonthsText,
+                            maxDigits: 3,
+                            suffix: "mo"
+                        )
                     }
                 }
 
@@ -178,7 +233,7 @@ struct AddEditReminderView: View {
                     }
                 }
 
-                Section("Notifications") {
+                Section {
                     if repeatByDate {
                         Toggle("Notify Me", isOn: $notificationsEnabled)
                         if notificationsEnabled {
@@ -193,6 +248,12 @@ struct AddEditReminderView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("Notifications")
+                } footer: {
+                    if notificationDateHasPassed {
+                        Text("This notification date has already passed, so no notification will be scheduled. Mark the reminder as done to start the next interval.")
+                    }
                 }
 
                 if isEditing {
@@ -200,8 +261,18 @@ struct AddEditReminderView: View {
                         Button("Mark as Done (Reschedule)") {
                             markDone()
                         }
+                        // Mark as Done saves right away. With unsaved edits on
+                        // screen, those edits would be silently dropped.
+                        .disabled(hasChanges)
                         Button("Delete Reminder", role: .destructive) {
+                            showingDeleteConfirm = true
+                        }
+                        .deleteConfirmation("Delete this reminder?", isPresented: $showingDeleteConfirm) {
                             deleteAndDismiss()
+                        }
+                    } footer: {
+                        if hasChanges {
+                            Text("Save or discard your changes before marking this done.")
                         }
                     }
                 }
@@ -211,21 +282,50 @@ struct AddEditReminderView: View {
             .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasChanges { showingDiscardConfirm = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(!repeatByMileage && !repeatByDate)
+                        .disabled(validationIssue != nil)
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
+            .onChange(of: notificationsEnabled) { _, newValue in
+                guard newValue, didLoad else { return }
+                Task { await verifyNotificationPermission() }
+            }
+            .alert("Notifications Are Off", isPresented: $showingNotificationPermissionAlert) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Roadworthy doesn't have permission to send notifications. Turn them on in Settings, then come back and enable \"Notify Me\" again.")
+            }
         }
     }
 
     private func loadExistingValues() {
+        guard !didLoad else { return }
+        defer {
+            loadedDraft = draft
+            didLoad = true
+        }
         guard let reminder else { return }
         type = reminder.type
-        title = reminder.title
+        // Same title handling as maintenance records: a stored type name isn't
+        // shown as a typed title, and a custom type's title is its description.
+        if reminder.type == .other, reminder.title != MaintenanceType.other.rawValue {
+            otherTypeDescription = reminder.title
+            title = ""
+        } else {
+            title = reminder.title == reminder.type.rawValue ? "" : reminder.title
+        }
         notes = reminder.notes
         repeatByMileage = reminder.repeatByMileage
         intervalMilesText = reminder.intervalMiles == 0 ? "" : String(convertFromMiles(reminder.intervalMiles, to: distanceUnit))
@@ -233,18 +333,29 @@ struct AddEditReminderView: View {
         intervalMonthsText = reminder.intervalMonths == 0 ? "" : String(reminder.intervalMonths)
         notificationsEnabled = reminder.notificationsEnabled
         notifyDaysBefore = reminder.notifyDaysBefore
-        if type == .other && title != MaintenanceType.other.rawValue {
-            otherTypeDescription = title
+    }
+
+    /// Confirms notifications are actually allowed the moment someone turns
+    /// "Notify Me" on. Without this, the toggle can show as enabled while
+    /// the system has notifications denied — and the reminder would just
+    /// silently never fire with no indication anything's wrong.
+    private func verifyNotificationPermission() async {
+        let granted = await ReminderNotificationManager.requestAuthorizationIfNeeded()
+        if !granted {
+            notificationsEnabled = false
+            showingNotificationPermissionAlert = true
         }
     }
 
     private func save() {
-        let intervalMiles = convertToMiles(Int(intervalMilesText) ?? 0, from: distanceUnit)
-        let intervalMonths = Int(intervalMonthsText) ?? 0
+        guard validationIssue == nil else { return }
+        let intervalMiles = repeatByMileage ? enteredIntervalMiles : 0
+        let intervalMonths = repeatByDate ? enteredIntervalMonths : 0
+        let notificationsOn = effectiveNotificationsEnabled
 
-        var finalTitle = title
-        if finalTitle.isEmpty && type == .other && !otherTypeDescription.isEmpty {
-            finalTitle = otherTypeDescription
+        var finalTitle = title.trimmed
+        if finalTitle.isEmpty && type == .other {
+            finalTitle = otherTypeDescription.trimmed
         }
         if finalTitle.isEmpty {
             finalTitle = type.rawValue
@@ -259,7 +370,7 @@ struct AddEditReminderView: View {
             reminder.intervalMiles = intervalMiles
             reminder.repeatByDate = repeatByDate
             reminder.intervalMonths = intervalMonths
-            reminder.notificationsEnabled = notificationsEnabled
+            reminder.notificationsEnabled = notificationsOn
             reminder.notifyDaysBefore = notifyDaysBefore
             savedReminder = reminder
         } else {
@@ -273,7 +384,7 @@ struct AddEditReminderView: View {
                 intervalMonths: intervalMonths,
                 baselineMileage: vehicle.currentMileage,
                 baselineDate: .now,
-                notificationsEnabled: notificationsEnabled,
+                notificationsEnabled: notificationsOn,
                 notifyDaysBefore: notifyDaysBefore
             )
             newReminder.vehicle = vehicle
@@ -281,9 +392,9 @@ struct AddEditReminderView: View {
             savedReminder = newReminder
         }
 
-        if notificationsEnabled {
-            ReminderNotificationManager.requestAuthorizationIfNeeded()
-        }
+        // Permission is already confirmed by the time "Notify Me" gets
+        // turned on (see verifyNotificationPermission), so this just
+        // (re)schedules based on the current due date and settings.
         ReminderNotificationManager.schedule(for: savedReminder, vehicleName: vehicle.displayName)
         Haptics.success()
         dismiss()

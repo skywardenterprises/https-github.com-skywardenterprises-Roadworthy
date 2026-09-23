@@ -151,25 +151,40 @@ final class Vehicle {
 
     /// Checks whether a fuel or maintenance entry's date/mileage would be
     /// inconsistent with an already-logged entry — the odometer shouldn't
-    /// read lower at a later (or same) date than it did at an earlier one.
+    /// read lower on a later day than it did on an earlier one.
     /// Pass the entry currently being edited (if any) so it excludes itself
     /// from the check. Returns the conflicting entry's date/mileage, if any.
+    ///
+    /// - Entries with no odometer reading (mileage 0) are ignored on both
+    ///   sides. Previously a single 0-mileage entry (for example an imported
+    ///   service record with no reading) blocked every entry dated before it.
+    /// - Dates are compared by calendar day, not timestamp. Forms only let
+    ///   the person pick a day, so the hidden time-of-day decided which
+    ///   same-day entry counted as "earlier." Same-day entries aren't checked
+    ///   against each other, since their order that day isn't known (a fuel
+    ///   stop and a service on the same day can happen in either order).
     func mileageConflict(
         forDate date: Date,
         mileage: Int,
         excludingFuelLog: FuelLog? = nil,
         excludingMaintenanceRecord: MaintenanceRecord? = nil
     ) -> (date: Date, mileage: Int)? {
+        guard mileage > 0 else { return nil }
+
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
         var conflicts: [(date: Date, mileage: Int)] = []
 
-        // Checks both directions: an earlier-or-same-dated entry shouldn't
-        // have HIGHER mileage than this one, and a later-or-same-dated entry
+        // Checks both directions: an entry from an earlier day shouldn't
+        // have HIGHER mileage than this one, and an entry from a later day
         // shouldn't have LOWER mileage than this one — either way, the
         // odometer would have had to run backwards.
         func check(_ entryDate: Date, _ entryMileage: Int) {
-            if entryDate <= date && entryMileage > mileage {
+            guard entryMileage > 0 else { return }
+            let entryDay = calendar.startOfDay(for: entryDate)
+            if entryDay < day && entryMileage > mileage {
                 conflicts.append((entryDate, entryMileage))
-            } else if entryDate >= date && entryMileage < mileage {
+            } else if entryDay > day && entryMileage < mileage {
                 conflicts.append((entryDate, entryMileage))
             }
         }
@@ -186,19 +201,22 @@ final class Vehicle {
     }
 }
 
-/// Builds a clear, direction-aware message for a mileage conflict — the
 /// True if the given date is a future calendar day (compares just the day,
 /// not the exact time, so picking "today" is never mistakenly flagged).
 func isFutureDate(_ date: Date) -> Bool {
     Calendar.current.startOfDay(for: date) > Calendar.current.startOfDay(for: .now)
 }
 
-/// True if the given date falls before the vehicle's model year — a vehicle
-/// can't have a fuel-up or maintenance event before it existed.
+/// True if the given date falls before the vehicle could have existed.
+/// Model-year vehicles go on sale the calendar year before their model
+/// year, so a 2027 model can have entries dated 2026. Matches
+/// `EntryValidation.isBeforeVehicleExisted` in FormSupport.swift; the
+/// Fuelly importer uses this one.
 func isBeforeManufactureYear(_ date: Date, vehicleYear: Int) -> Bool {
-    Calendar.current.component(.year, from: date) < vehicleYear
+    Calendar.current.component(.year, from: date) < vehicleYear - 1
 }
 
+/// Builds a clear, direction-aware message for a mileage conflict — the
 /// wording differs depending on whether the conflicting entry is dated
 /// before (and has higher mileage) or after (and has lower mileage).
 func buildMileageConflictMessage(newMileage: Int, newDate: Date, conflict: (date: Date, mileage: Int)) -> String {
@@ -521,12 +539,24 @@ final class MaintenanceReminder {
         return Calendar.current.dateComponents([.day], from: Date.now, to: nextDueDate).day
     }
 
-    /// True if the reminder is coming due soon (within 2 weeks or 1,000
-    /// miles) but hasn't hit its threshold yet.
+    /// How close to due counts as "soon": 1,000 miles or 14 days, but never
+    /// more than a fifth of the interval. With a fixed window, short-interval
+    /// reminders (like chain lubrication every 500 miles) showed "Upcoming"
+    /// the moment they were reset.
+    var dueSoonMileageWindow: Int {
+        min(1000, max(1, intervalMiles / 5))
+    }
+
+    var dueSoonDayWindow: Int {
+        min(14, max(1, intervalMonths * 30 / 5))
+    }
+
+    /// True if the reminder is coming due soon (see the windows above) but
+    /// hasn't hit its threshold yet.
     func isDueSoon(currentMileage: Int) -> Bool {
         guard !isDue(currentMileage: currentMileage) else { return false }
-        if let miles = milesRemaining(currentMileage: currentMileage), miles <= 1000 { return true }
-        if let days = daysRemaining, days <= 14 { return true }
+        if let miles = milesRemaining(currentMileage: currentMileage), miles <= dueSoonMileageWindow { return true }
+        if let days = daysRemaining, days <= dueSoonDayWindow { return true }
         return false
     }
 

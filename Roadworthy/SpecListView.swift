@@ -5,6 +5,7 @@ struct SpecListView: View {
     @Environment(\.modelContext) private var context
     let vehicle: Vehicle
     @State private var specToEdit: VehicleSpec?
+    @State private var pendingDeletion: [VehicleSpec] = []
 
     private var parts: [VehicleSpec] {
         vehicle.specs.filter { $0.category == .part }.sorted { $0.name < $1.name }
@@ -28,7 +29,7 @@ struct SpecListView: View {
                             ForEach(parts) { spec in
                                 specRow(spec)
                             }
-                            .onDelete { offsets in deleteSpecs(parts, at: offsets) }
+                            .onDelete { offsets in pendingDeletion = offsets.map { parts[$0] } }
                         }
                     }
                     if !torqueSpecs.isEmpty {
@@ -36,7 +37,7 @@ struct SpecListView: View {
                             ForEach(torqueSpecs) { spec in
                                 specRow(spec)
                             }
-                            .onDelete { offsets in deleteSpecs(torqueSpecs, at: offsets) }
+                            .onDelete { offsets in pendingDeletion = offsets.map { torqueSpecs[$0] } }
                         }
                     }
                 }
@@ -44,6 +45,7 @@ struct SpecListView: View {
         }
         .navigationTitle("Vehicle Specs")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmDeletion(of: $pendingDeletion, noun: "spec") { deleteSpecs($0) }
         .sheet(item: $specToEdit) { spec in
             AddEditSpecView(vehicle: vehicle, spec: spec)
         }
@@ -80,10 +82,11 @@ struct SpecListView: View {
         .foregroundStyle(.primary)
     }
 
-    private func deleteSpecs(_ list: [VehicleSpec], at offsets: IndexSet) {
-        for index in offsets {
-            context.delete(list[index])
+    private func deleteSpecs(_ specs: [VehicleSpec]) {
+        for spec in specs {
+            context.delete(spec)
         }
+        Haptics.delete()
     }
 }
 
@@ -143,23 +146,46 @@ struct AddEditSpecView: View {
     @State private var torqueUnit: String = AddEditSpecView.torqueUnits.first!
     @State private var notes = ""
 
+    @State private var showingDeleteConfirm = false
+    @State private var showingDiscardConfirm = false
+    @State private var didLoad = false
+    @State private var loadedDraft: [AnyHashable] = []
+
     private var isEditing: Bool { spec != nil }
     private var presetOptions: [String] {
         category == .part ? partPresets : torquePresets
     }
     private var finalName: String {
-        presetName == Self.customOption ? customName : presetName
+        (presetName == Self.customOption ? customName : presetName).trimmed
     }
     private var finalValue: String {
         if category == .torque {
-            return torqueMagnitude.isEmpty ? "" : "\(torqueMagnitude) \(torqueUnit)"
+            let magnitude = torqueMagnitude.trimmed
+            return magnitude.isEmpty ? "" : "\(magnitude) \(torqueUnit)"
         }
-        return value
+        return value.trimmed
     }
+
+    private var validationIssue: String? {
+        if finalName.isEmpty {
+            return presetName == Self.customOption ? "Enter a name for this item." : "Choose an item."
+        }
+        return nil
+    }
+
+    private var draft: [AnyHashable] {
+        formSnapshot(category, presetName, customName, value, brand, torqueMagnitude, torqueUnit, notes)
+    }
+
+    private var hasChanges: Bool { didLoad && draft != loadedDraft }
 
     var body: some View {
         NavigationStack {
             Form {
+                if didLoad, let validationIssue {
+                    Section { FormIssueRow(message: validationIssue) }
+                }
+
                 Section {
                     Picker("Category", selection: $category) {
                         ForEach(SpecCategory.allCases) { cat in
@@ -197,6 +223,9 @@ struct AddEditSpecView: View {
                 if isEditing {
                     Section {
                         Button("Delete Spec", role: .destructive) {
+                            showingDeleteConfirm = true
+                        }
+                        .deleteConfirmation("Delete this spec?", isPresented: $showingDeleteConfirm) {
                             deleteAndDismiss()
                         }
                     }
@@ -207,22 +236,35 @@ struct AddEditSpecView: View {
             .withKeyboardDismiss()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasChanges { showingDiscardConfirm = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(finalName.isEmpty)
+                        .disabled(validationIssue != nil)
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
             .onChange(of: category) { _, _ in
-                // Reset the item picker to a valid option for the newly selected category.
-                presetName = presetOptions.first ?? Self.customOption
+                // Only reset the item picker when the current choice doesn't
+                // exist for the new category. Loading an existing torque spec
+                // changes the category from its .part default, and resetting
+                // unconditionally here used to replace the spec's name.
+                if !presetOptions.contains(presetName) {
+                    presetName = presetOptions.first ?? Self.customOption
+                }
             }
         }
     }
 
     private func loadExistingValues() {
+        guard !didLoad else { return }
+        defer {
+            loadedDraft = draft
+            didLoad = true
+        }
         guard let spec else {
             presetName = presetOptions.first ?? Self.customOption
             return
@@ -252,18 +294,19 @@ struct AddEditSpecView: View {
     }
 
     private func save() {
+        guard validationIssue == nil else { return }
         if let spec {
             spec.category = category
             spec.name = finalName
             spec.value = finalValue
-            spec.brand = category == .part ? brand : ""
+            spec.brand = category == .part ? brand.trimmed : ""
             spec.notes = notes
         } else {
             let newSpec = VehicleSpec(
                 category: category,
                 name: finalName,
                 value: finalValue,
-                brand: category == .part ? brand : "",
+                brand: category == .part ? brand.trimmed : "",
                 notes: notes
             )
             newSpec.vehicle = vehicle

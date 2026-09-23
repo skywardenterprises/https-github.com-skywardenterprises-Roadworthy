@@ -1,11 +1,14 @@
 import SwiftUI
 import PhotosUI
 
-/// A reusable "Receipt Photo" row for forms — lets the user take a photo,
-/// choose one from their library, view it, or remove it. Used by both the
-/// Maintenance and Expense add/edit forms.
+/// A reusable "Receipt Photo" row for forms. Lets the user take a photo,
+/// choose one from their library, view it, or remove it. Used by the
+/// Maintenance, Fuel, and Expense add/edit forms.
 struct ReceiptPhotoField: View {
     @Binding var photoData: Data?
+    /// True while a library photo is loading. Forms bind this to disable
+    /// Save, so tapping Save early can't drop the photo.
+    var isLoading: Binding<Bool> = .constant(false)
 
     @State private var showingOptions = false
     @State private var showingCamera = false
@@ -20,7 +23,9 @@ struct ReceiptPhotoField: View {
             HStack {
                 Text("Receipt Photo").foregroundStyle(.primary)
                 Spacer()
-                if let photoData, let uiImage = UIImage(data: photoData) {
+                if isLoading.wrappedValue {
+                    ProgressView()
+                } else if let photoData, let uiImage = UIImage(data: photoData) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFill()
@@ -32,6 +37,7 @@ struct ReceiptPhotoField: View {
                 }
             }
         }
+        .disabled(isLoading.wrappedValue)
         .confirmationDialog("Receipt Photo", isPresented: $showingOptions, titleVisibility: .visible) {
             Button("Take Photo") { showingCamera = true }
             Button("Choose from Library") { showingPhotoPicker = true }
@@ -46,13 +52,7 @@ struct ReceiptPhotoField: View {
                 .ignoresSafeArea()
         }
         .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhoto, matching: .images)
-        .onChange(of: selectedPhoto) { _, newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                    photoData = data
-                }
-            }
-        }
+        .loadsPickedPhoto($selectedPhoto, into: $photoData, isLoading: isLoading)
         .sheet(isPresented: $showingViewer) {
             if let photoData, let uiImage = UIImage(data: photoData) {
                 NavigationStack {

@@ -531,7 +531,7 @@ struct ReportsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("BUSINESS MILEAGE")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                statCard(value: "\(totalBusinessMiles.formatted())", label: "BUSINESS MI")
+                statCard(value: convertFromMiles(totalBusinessMiles, to: distanceUnit).formatted(), label: "BUSINESS \(distanceUnit.rawValue.uppercased())")
                 statCard(value: estimatedDeduction.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "DEDUCTION")
                 statCard(value: "$" + String(format: "%.2f", mileageRate), label: "RATE / MI")
             }
@@ -544,14 +544,14 @@ struct ReportsView: View {
                 Chart(monthlyBusinessMiles) { point in
                     BarMark(
                         x: .value("Month", point.monthStart, unit: .month),
-                        y: .value("Miles", point.miles)
+                        y: .value(distanceUnit.displayName, convertFromMiles(point.miles, to: distanceUnit))
                     )
                     .foregroundStyle(Color.accentColor)
                 }
                 .frame(height: 180)
                 .padding(.horizontal, 16)
-                .accessibilityLabel("Business miles by month chart")
-                .accessibilityValue("\(totalBusinessMiles.formatted()) total business miles")
+                .accessibilityLabel("Business \(distanceUnit.displayName.lowercased()) by month chart")
+                .accessibilityValue("\(formattedDistance(totalBusinessMiles, unit: distanceUnit)) total business distance")
             }
         }
     }
