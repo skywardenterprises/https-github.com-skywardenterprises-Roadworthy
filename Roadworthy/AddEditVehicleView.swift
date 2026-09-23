@@ -5,7 +5,7 @@ import PhotosUI
 struct AddEditVehicleView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
+    @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
 
     // If editing an existing vehicle, pass it in. Nil means "creating new".
     var vehicle: Vehicle?
@@ -31,6 +31,7 @@ struct AddEditVehicleView: View {
     @State private var currentValueText = ""
 
     @State private var didLoad = false
+    @State private var saveError: String?
     @State private var loadedDraft: [AnyHashable] = []
     @State private var showingDiscardConfirm = false
 
@@ -93,7 +94,7 @@ struct AddEditVehicleView: View {
                             if isLoadingPhoto {
                                 ProgressView()
                                     .frame(width: 60, height: 60)
-                            } else if let photoData, let uiImage = UIImage(data: photoData) {
+                            } else if let photoData, let uiImage = ThumbnailCache.image(for: photoData, maxPixel: 180) {
                                 Image(uiImage: uiImage)
                                     .resizable()
                                     .scaledToFill()
@@ -109,7 +110,9 @@ struct AddEditVehicleView: View {
                     .foregroundStyle(.primary)
                     .disabled(isLoadingPhoto)
                     .confirmationDialog("Vehicle Photo", isPresented: $showingPhotoOptions, titleVisibility: .visible) {
-                        Button("Take Photo") { showingCamera = true }
+                        if CameraPicker.isAvailable {
+                            Button("Take Photo") { showingCamera = true }
+                        }
                         Button("Choose from Library") { showingPhotoLibraryPicker = true }
                         if photoData != nil {
                             Button("View Photo") { showingPhotoViewer = true }
@@ -235,6 +238,7 @@ struct AddEditVehicleView: View {
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .saveErrorAlert($saveError)
             .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
         }
     }
@@ -317,6 +321,10 @@ struct AddEditVehicleView: View {
                 estimatedValueUpdatedDate: currentValue != nil ? .now : nil
             )
             context.insert(newVehicle)
+        }
+        if let message = context.saveReportingErrors() {
+            saveError = message
+            return
         }
         Haptics.success()
         dismiss()

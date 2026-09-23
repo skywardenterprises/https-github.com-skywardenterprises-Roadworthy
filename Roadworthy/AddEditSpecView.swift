@@ -1,95 +1,6 @@
 import SwiftUI
 import SwiftData
 
-struct SpecListView: View {
-    @Environment(\.modelContext) private var context
-    let vehicle: Vehicle
-    @State private var specToEdit: VehicleSpec?
-    @State private var pendingDeletion: [VehicleSpec] = []
-
-    private var parts: [VehicleSpec] {
-        vehicle.specs.filter { $0.category == .part }.sorted { $0.name < $1.name }
-    }
-    private var torqueSpecs: [VehicleSpec] {
-        vehicle.specs.filter { $0.category == .torque }.sorted { $0.name < $1.name }
-    }
-
-    var body: some View {
-        Group {
-            if vehicle.specs.isEmpty {
-                ContentUnavailableView(
-                    "No Specs Saved Yet",
-                    systemImage: "list.clipboard.fill",
-                    description: Text("Save part numbers and torque specs here so you're never digging through old receipts again.")
-                )
-            } else {
-                List {
-                    if !parts.isEmpty {
-                        Section("Parts") {
-                            ForEach(parts) { spec in
-                                specRow(spec)
-                            }
-                            .onDelete { offsets in pendingDeletion = offsets.map { parts[$0] } }
-                        }
-                    }
-                    if !torqueSpecs.isEmpty {
-                        Section("Torque Specs") {
-                            ForEach(torqueSpecs) { spec in
-                                specRow(spec)
-                            }
-                            .onDelete { offsets in pendingDeletion = offsets.map { torqueSpecs[$0] } }
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("Vehicle Specs")
-        .navigationBarTitleDisplayMode(.inline)
-        .confirmDeletion(of: $pendingDeletion, noun: "spec") { deleteSpecs($0) }
-        .sheet(item: $specToEdit) { spec in
-            AddEditSpecView(vehicle: vehicle, spec: spec)
-        }
-    }
-
-    private func specRow(_ spec: VehicleSpec) -> some View {
-        Button {
-            specToEdit = spec
-        } label: {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(spec.name).font(.headline)
-                    if !spec.brand.isEmpty {
-                        Text(spec.brand)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !spec.notes.isEmpty {
-                        Text(spec.notes)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                if !spec.value.isEmpty {
-                    Text(spec.value)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.primary)
-    }
-
-    private func deleteSpecs(_ specs: [VehicleSpec]) {
-        for spec in specs {
-            context.delete(spec)
-        }
-        Haptics.delete()
-    }
-}
-
 struct AddEditSpecView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -149,6 +60,7 @@ struct AddEditSpecView: View {
     @State private var showingDeleteConfirm = false
     @State private var showingDiscardConfirm = false
     @State private var didLoad = false
+    @State private var saveError: String?
     @State private var loadedDraft: [AnyHashable] = []
 
     private var isEditing: Bool { spec != nil }
@@ -231,7 +143,7 @@ struct AddEditSpecView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Spec" : "New Spec")
+            .navigationTitle(isEditing ? "Edit Spec" : "Add Spec")
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {
@@ -246,6 +158,7 @@ struct AddEditSpecView: View {
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .saveErrorAlert($saveError)
             .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
             .onChange(of: category) { _, _ in
                 // Only reset the item picker when the current choice doesn't
@@ -312,6 +225,10 @@ struct AddEditSpecView: View {
             newSpec.vehicle = vehicle
             context.insert(newSpec)
         }
+        if let message = context.saveReportingErrors() {
+            saveError = message
+            return
+        }
         Haptics.success()
         dismiss()
     }
@@ -319,6 +236,10 @@ struct AddEditSpecView: View {
     private func deleteAndDismiss() {
         if let spec {
             context.delete(spec)
+        }
+        if let message = context.saveReportingErrors() {
+            saveError = message
+            return
         }
         Haptics.delete()
         dismiss()

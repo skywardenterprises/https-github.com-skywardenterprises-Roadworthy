@@ -655,7 +655,7 @@ enum FuellyImporter {
     }
 
     private static func currency(_ value: Double) -> String {
-        value.formatted(.currency(code: "USD"))
+        value.formatted(.currency(code: AppCurrency.code))
     }
 
     /// nil means the value wasn't recognized. The caller decides the

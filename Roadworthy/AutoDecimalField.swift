@@ -49,12 +49,20 @@ struct AutoDecimalField: View {
     /// existing record on first load, or an auto-calculated total, for
     /// example — without disturbing what's here if it already matches.
     private func syncFromExternalText() {
-        guard let externalValue = Double(text), externalValue != 0 else {
-            if Double(text) == nil { rawDigits = "" }
+        guard let externalValue = Double(text), externalValue.isFinite, externalValue != 0 else {
+            if Double(text).map({ !$0.isFinite }) ?? true { rawDigits = "" }
             return
         }
         let divisor = pow(10.0, Double(decimalPlaces))
-        let recomputedDigits = String(Int((externalValue * divisor).rounded()))
+        let scaled = (externalValue * divisor).rounded()
+        // Converting a Double too large for Int crashes the app. A value this
+        // size can only come from bad data (for example an import containing
+        // "1E+20"), so the field is left blank rather than crashing.
+        guard abs(scaled) < 1e15, let wholeDigits = Int(exactly: abs(scaled)) else {
+            rawDigits = ""
+            return
+        }
+        let recomputedDigits = String(wholeDigits)
         if recomputedDigits != rawDigits {
             rawDigits = recomputedDigits
         }

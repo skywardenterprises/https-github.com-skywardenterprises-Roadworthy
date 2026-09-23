@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
-    @AppStorage("appLanguage") private var appLanguage: AppLanguage = .system
+    @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
+    @AppStorage(SettingKey.appLanguage) private var appLanguage: AppLanguage = .system
     @State private var showingImport = false
     @EnvironmentObject private var syncMonitor: CloudSyncMonitor
 
@@ -17,7 +17,7 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text("Changes how odometer readings and mileage are shown and entered throughout the app.")
+                    Text("Changes how odometer readings and distances are shown and entered throughout the app. Fuel is still recorded in gallons and fuel economy shown in MPG.")
                 }
 
                 Section {

@@ -30,7 +30,9 @@ nonisolated func convertFromMiles(_ miles: Int, to unit: DistanceUnit) -> Int {
     case .miles:
         return miles
     case .kilometers:
-        return Int((Double(miles) * kilometersPerMile).rounded())
+        // Int(exactly:) returns nil instead of crashing for an absurd stored
+        // value (such as a 19-digit odometer saved before input was capped).
+        return Int(exactly: (Double(miles) * kilometersPerMile).rounded()) ?? 0
     }
 }
 
@@ -42,7 +44,7 @@ nonisolated func convertToMiles(_ value: Int, from unit: DistanceUnit) -> Int {
     case .miles:
         return value
     case .kilometers:
-        return Int((Double(value) / kilometersPerMile).rounded())
+        return Int(exactly: (Double(value) / kilometersPerMile).rounded()) ?? 0
     }
 }
 

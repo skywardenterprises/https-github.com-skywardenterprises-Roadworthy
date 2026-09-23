@@ -2,7 +2,8 @@ import UIKit
 import CoreText
 import ImageIO
 
-/// Builds the PDF and CSV files behind the Export & Share feature.
+/// Builds the PDF files behind the Export & Share feature. CSV files are
+/// built by CSVGenerator.
 enum ExportGenerator {
     private static let pageWidth: CGFloat = 612    // US Letter, 72 dpi
     private static let pageHeight: CGFloat = 792
@@ -299,7 +300,7 @@ enum ExportGenerator {
             autoreleasepool {
                 ensureSpace(page, needed: 40, cursor: &cursor)
                 drawFlowing(record.title, attributes: headingAttributes, page: page, cursor: &cursor)
-                let line = "\(record.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(record.mileage, unit: page.unit))  •  \(record.cost.formatted(.currency(code: "USD")))"
+                let line = "\(record.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(record.mileage, unit: page.unit))  •  \(record.cost.formatted(.currency(code: AppCurrency.code)))"
                 drawFlowing(line, attributes: secondaryAttributes, page: page, cursor: &cursor)
                 if !record.notes.isEmpty {
                     drawFlowing(record.notes, attributes: bodyAttributes, page: page, cursor: &cursor)
@@ -327,7 +328,7 @@ enum ExportGenerator {
             autoreleasepool {
                 ensureSpace(page, needed: 30, cursor: &cursor)
                 let gallonsText = log.gallons.formatted(.number.precision(.fractionLength(1)))
-                let line = "\(log.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(log.mileage, unit: page.unit))  •  \(gallonsText) gal @ \(log.pricePerGallon.formatted(.currency(code: "USD")))  •  \(log.totalCost.formatted(.currency(code: "USD")))"
+                let line = "\(log.date.formatted(date: .abbreviated, time: .omitted))  •  \(formattedDistance(log.mileage, unit: page.unit))  •  \(gallonsText) gal @ \(log.pricePerGallon.formatted(.currency(code: AppCurrency.code)))  •  \(log.totalCost.formatted(.currency(code: AppCurrency.code)))"
                 drawFlowing(line, attributes: bodyAttributes, page: page, cursor: &cursor)
                 if !log.notes.isEmpty {
                     drawFlowing(log.notes, attributes: secondaryAttributes, page: page, cursor: &cursor)
@@ -354,7 +355,7 @@ enum ExportGenerator {
         for expense in expenses {
             autoreleasepool {
                 ensureSpace(page, needed: 30, cursor: &cursor)
-                let line = "\(expense.date.formatted(date: .abbreviated, time: .omitted))  •  \(expense.category.rawValue)  •  \(expense.amount.formatted(.currency(code: "USD")))"
+                let line = "\(expense.date.formatted(date: .abbreviated, time: .omitted))  •  \(expense.category.rawValue)  •  \(expense.amount.formatted(.currency(code: AppCurrency.code)))"
                 drawFlowing(line, attributes: bodyAttributes, page: page, cursor: &cursor)
                 if !expense.notes.isEmpty {
                     drawFlowing(expense.notes, attributes: secondaryAttributes, page: page, cursor: &cursor)
@@ -441,7 +442,7 @@ enum ExportGenerator {
             let deduction = Double(businessMiles) * rate
             draw(text: "Rate per Mile: $" + String(format: "%.3f", rate), attributes: bodyAttributes, cursor: &cursor)
             cursor += 2
-            draw(text: "Estimated \(taxYear) Deduction: " + deduction.formatted(.currency(code: "USD")), attributes: bodyAttributes, cursor: &cursor)
+            draw(text: "Estimated \(taxYear) Deduction: " + deduction.formatted(.currency(code: AppCurrency.code)), attributes: bodyAttributes, cursor: &cursor)
             cursor += 2
             draw(text: "Uses the rate set in Roadworthy. Confirm it matches the IRS standard mileage rate for \(taxYear), which can change mid-year.", attributes: secondaryAttributes, cursor: &cursor)
         } else {

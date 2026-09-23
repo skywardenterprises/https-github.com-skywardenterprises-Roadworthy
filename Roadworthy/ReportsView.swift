@@ -30,13 +30,13 @@ private enum ComparisonMetric: String, CaseIterable, Identifiable {
 
 struct ReportsView: View {
     let vehicle: Vehicle
-    @AppStorage("distanceUnit") private var distanceUnit: DistanceUnit = .miles
+    @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
 
     @State private var fuelChartPeriod: ChartPeriod = .fillUp
     @State private var breakdownRange: BreakdownRange = .allTime
     @State private var comparisonPeriod: ComparisonPeriod = .month
     @State private var comparisonMetric: ComparisonMetric = .mpg
-    @AppStorage("businessMileageRate") private var mileageRate: Double = 0.76
+    @AppStorage(SettingKey.businessMileageRate) private var mileageRate: Double = SettingDefault.businessMileageRate
 
     var body: some View {
         ScrollView {
@@ -143,8 +143,8 @@ struct ReportsView: View {
     }
     private var priceAccessibilitySummary: String {
         guard let first = priceAggregated.first, let last = priceAggregated.last else { return "No data" }
-        let firstValue = first.value.formatted(.currency(code: "USD"))
-        let lastValue = last.value.formatted(.currency(code: "USD"))
+        let firstValue = first.value.formatted(.currency(code: AppCurrency.code))
+        let lastValue = last.value.formatted(.currency(code: AppCurrency.code))
         return "\(priceAggregated.count) data points, from \(firstValue) to \(lastValue) per gallon"
     }
 
@@ -172,8 +172,8 @@ struct ReportsView: View {
             sectionTitle("SUMMARY")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 statCard(value: overallAverageMPG.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—", label: "AVG MPG")
-                statCard(value: overallCostPerMile.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(2))) } ?? "—", label: "COST / \(distanceUnit.rawValue.uppercased())")
-                statCard(value: totalSpend.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "TOTAL SPEND")
+                statCard(value: overallCostPerMile.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(2))) } ?? "—", label: "COST / \(distanceUnit.rawValue.uppercased())")
+                statCard(value: totalSpend.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "TOTAL SPEND")
             }
             .padding(.horizontal, 16)
         }
@@ -294,7 +294,7 @@ struct ReportsView: View {
                                     .accessibilityHidden(true)
                                 Text(item.category).font(.caption)
                                 Spacer()
-                                Text(item.amount.formatted(.currency(code: "USD").precision(.fractionLength(0))))
+                                Text(item.amount.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -320,12 +320,12 @@ struct ReportsView: View {
         return (fromFuel + fromMaintenance).sorted { $0.date < $1.date }
     }
 
-    private func mileageAtOrBefore(_ date: Date) -> Int? {
-        mileageSnapshots.last { $0.date <= date }?.mileage
-    }
-
-    private func totalSpend(from start: Date, through end: Date) -> Double {
-        let range = start...end
+    /// Spending from `start` up to, but not including, `end`. Half-open, so
+    /// consecutive months share a boundary without gaps or overlap.
+    /// (Previously the range ended at midnight at the start of the month's
+    /// last day, which left out everything logged later that day.)
+    private func totalSpend(from start: Date, before end: Date) -> Double {
+        let range = start..<end
         let fuel = vehicle.fuelLogs.filter { range.contains($0.date) }.reduce(0) { $0 + $1.totalCost }
         let maintenance = vehicle.maintenanceRecords.filter { range.contains($0.date) }.reduce(0) { $0 + $1.cost }
         let expenses = vehicle.expenses.filter { range.contains($0.date) }.reduce(0) { $0 + $1.amount }
@@ -352,12 +352,18 @@ struct ReportsView: View {
             cursor = next
         }
 
+        // Sorted once here rather than on every lookup.
+        let snapshots = mileageSnapshots
+        func mileage(before date: Date) -> Int? {
+            snapshots.last { $0.date < date }?.mileage
+        }
+
         var results: [MonthCostPerMile] = []
         for monthStart in months {
-            guard let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) else { continue }
-            let spend = totalSpend(from: monthStart, through: monthEnd)
-            guard let endMileage = mileageAtOrBefore(monthEnd),
-                  let startMileage = mileageAtOrBefore(monthStart.addingTimeInterval(-1)),
+            guard let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart) else { continue }
+            let spend = totalSpend(from: monthStart, before: nextMonthStart)
+            guard let endMileage = mileage(before: nextMonthStart),
+                  let startMileage = mileage(before: monthStart),
                   endMileage > startMileage else { continue }
             let miles = endMileage - startMileage
             let distance = convertFromMiles(miles, to: distanceUnit)
@@ -370,11 +376,13 @@ struct ReportsView: View {
     private var costPerMileSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("COST PER \(distanceUnit.rawValue.uppercased()) (MONTHLY)")
-            if monthlyCostPerMile.isEmpty {
+            // Computed once per render instead of once per use.
+            let monthlyPoints = monthlyCostPerMile
+            if monthlyPoints.isEmpty {
                 emptyChartPlaceholder("Log fill-ups or maintenance across at least two different months to see this trend.")
                     .padding(.horizontal, 16)
             } else {
-                Chart(monthlyCostPerMile) { point in
+                Chart(monthlyPoints) { point in
                     BarMark(
                         x: .value("Month", point.monthStart, unit: .month),
                         y: .value("Cost", point.costPerMile)
@@ -384,7 +392,7 @@ struct ReportsView: View {
                 .frame(height: 180)
                 .padding(.horizontal, 16)
                 .accessibilityLabel("Cost per \(distanceUnit.displayName.lowercased()) by month chart")
-                .accessibilityValue("\(monthlyCostPerMile.count) months of data")
+                .accessibilityValue("\(monthlyPoints.count) months of data")
             }
         }
     }
@@ -507,8 +515,16 @@ struct ReportsView: View {
     private var totalBusinessMiles: Int {
         vehicle.trips.filter { $0.purpose == .business }.reduce(0) { $0 + $1.milesDriven }
     }
+    /// The deduction is per tax year, since the IRS rate changes by year.
+    /// Matches the Business Mileage Log PDF's single-year estimate.
+    private var currentTaxYear: Int { Calendar.current.component(.year, from: .now) }
+    private var businessMilesThisYear: Int {
+        vehicle.trips
+            .filter { $0.purpose == .business && Calendar.current.component(.year, from: $0.date) == currentTaxYear }
+            .reduce(0) { $0 + $1.milesDriven }
+    }
     private var estimatedDeduction: Double {
-        Double(totalBusinessMiles) * mileageRate
+        Double(businessMilesThisYear) * mileageRate
     }
 
     private var monthlyBusinessMiles: [MonthlyBusinessMiles] {
@@ -531,8 +547,8 @@ struct ReportsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("BUSINESS MILEAGE")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                statCard(value: convertFromMiles(totalBusinessMiles, to: distanceUnit).formatted(), label: "BUSINESS \(distanceUnit.rawValue.uppercased())")
-                statCard(value: estimatedDeduction.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "DEDUCTION")
+                statCard(value: convertFromMiles(businessMilesThisYear, to: distanceUnit).formatted(), label: "\(String(currentTaxYear)) BUSINESS \(distanceUnit.rawValue.uppercased())")
+                statCard(value: estimatedDeduction.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "\(String(currentTaxYear)) DEDUCTION")
                 statCard(value: "$" + String(format: "%.2f", mileageRate), label: "RATE / MI")
             }
             .padding(.horizontal, 16)
@@ -586,15 +602,15 @@ struct ReportsView: View {
             sectionTitle("TRUE COST OF OWNERSHIP")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 statCard(
-                    value: vehicle.purchasePrice > 0 ? vehicle.purchasePrice.formatted(.currency(code: "USD").precision(.fractionLength(0))) : "—",
+                    value: vehicle.purchasePrice > 0 ? vehicle.purchasePrice.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))) : "—",
                     label: "PURCHASE PRICE"
                 )
                 statCard(
-                    value: vehicle.estimatedCurrentValue.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(0))) } ?? "—",
+                    value: vehicle.estimatedCurrentValue.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))) } ?? "—",
                     label: "CURRENT VALUE"
                 )
                 statCard(
-                    value: totalSpend.formatted(.currency(code: "USD").precision(.fractionLength(0))),
+                    value: totalSpend.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))),
                     label: "TOTAL SPEND"
                 )
             }
@@ -602,13 +618,13 @@ struct ReportsView: View {
 
             if let netCost = netCostOfOwnership {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    statCard(value: netCost.formatted(.currency(code: "USD").precision(.fractionLength(0))), label: "NET COST")
+                    statCard(value: netCost.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "NET COST")
                     statCard(
-                        value: costPerMonthOwned.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(0))) } ?? "—",
+                        value: costPerMonthOwned.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))) } ?? "—",
                         label: "COST / MONTH"
                     )
                     statCard(
-                        value: costPerMileOwned.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(2))) } ?? "—",
+                        value: costPerMileOwned.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(2))) } ?? "—",
                         label: "COST / \(distanceUnit.rawValue.uppercased()) OWNED"
                     )
                 }
