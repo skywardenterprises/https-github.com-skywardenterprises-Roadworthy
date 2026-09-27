@@ -2,75 +2,45 @@ import Foundation
 import SwiftData
 import OSLog
 
-/// One-time data fixes that run at every launch. Each step only fetches
-/// records that still need it, so once everything has been filled in the
-/// fetches come back empty and the whole pass costs almost nothing.
+/// Data fixes that run at every launch. Each step only fetches records that
+/// still need it, so normally the fetches come back empty and the pass costs
+/// almost nothing.
 ///
-/// Current steps:
-/// - Copy each enum value from its legacy storage into the new raw-string
-///   property (see the `...Raw` properties in Models.swift).
-/// - Give every record a `stableID`.
-///
-/// Records that sync in later from another device are covered on the next
-/// launch. Once every device has run this version, the legacy enum
-/// properties can be removed from Models.swift in a later release.
+/// Current step: give any record without a `stableID` its own ID. Every
+/// record created by this version gets one when it's created, so this is a
+/// safety net for records that arrive without one, such as a record synced
+/// from a device still running a pre-release build.
 enum DataMigrations {
     static func run(in context: ModelContext) {
         do {
             var updated = 0
-
-            updated += try fill(#Predicate<Vehicle> { $0.stableID == nil || $0.vehicleTypeRaw == "" }, in: context) { vehicle in
-                if vehicle.stableID == nil { vehicle.stableID = UUID() }
-                if vehicle.vehicleTypeRaw.isEmpty { vehicle.vehicleTypeRaw = (vehicle.legacyVehicleType ?? .car).rawValue }
-            }
-            updated += try fill(#Predicate<MaintenanceRecord> { $0.stableID == nil || $0.typeRaw == "" }, in: context) { record in
-                if record.stableID == nil { record.stableID = UUID() }
-                if record.typeRaw.isEmpty { record.typeRaw = (record.legacyType ?? .other).rawValue }
-            }
-            updated += try fill(#Predicate<FuelLog> { $0.stableID == nil || $0.fuelGradeRaw == "" || $0.paymentMethodRaw == "" }, in: context) { log in
-                if log.stableID == nil { log.stableID = UUID() }
-                if log.fuelGradeRaw.isEmpty { log.fuelGradeRaw = (log.legacyFuelGrade ?? .regular).rawValue }
-                if log.paymentMethodRaw.isEmpty { log.paymentMethodRaw = (log.legacyPaymentMethod ?? .creditCard).rawValue }
-            }
-            updated += try fill(#Predicate<ExpenseRecord> { $0.stableID == nil || $0.categoryRaw == "" }, in: context) { expense in
-                if expense.stableID == nil { expense.stableID = UUID() }
-                if expense.categoryRaw.isEmpty { expense.categoryRaw = (expense.legacyCategory ?? .other).rawValue }
-            }
-            updated += try fill(#Predicate<VehicleDocument> { $0.stableID == nil }, in: context) { document in
-                document.stableID = UUID()
-            }
-            updated += try fill(#Predicate<MaintenanceReminder> { $0.stableID == nil || $0.typeRaw == "" }, in: context) { reminder in
-                if reminder.stableID == nil { reminder.stableID = UUID() }
-                if reminder.typeRaw.isEmpty { reminder.typeRaw = (reminder.legacyType ?? .other).rawValue }
-            }
-            updated += try fill(#Predicate<VehicleSpec> { $0.stableID == nil || $0.categoryRaw == "" }, in: context) { spec in
-                if spec.stableID == nil { spec.stableID = UUID() }
-                if spec.categoryRaw.isEmpty { spec.categoryRaw = (spec.legacyCategory ?? .part).rawValue }
-            }
-            updated += try fill(#Predicate<TripLog> { $0.stableID == nil || $0.purposeRaw == "" }, in: context) { trip in
-                if trip.stableID == nil { trip.stableID = UUID() }
-                if trip.purposeRaw.isEmpty { trip.purposeRaw = (trip.legacyPurpose ?? .business).rawValue }
-            }
+            updated += try assignStableIDs(#Predicate<Vehicle> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<MaintenanceRecord> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<FuelLog> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<ExpenseRecord> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<VehicleDocument> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<MaintenanceReminder> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<VehicleSpec> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
+            updated += try assignStableIDs(#Predicate<TripLog> { $0.stableID == nil }, in: context) { $0.stableID = UUID() }
 
             if updated > 0 {
                 try context.save()
-                Logger.sync.notice("DataMigrations updated \(updated, privacy: .public) records.")
+                Logger.sync.notice("DataMigrations assigned stable IDs to \(updated, privacy: .public) records.")
             }
         } catch {
-            // Nothing is lost if this fails: every property reads correctly
-            // from its legacy value until the fill succeeds on a later launch.
+            // Nothing breaks if this fails; it simply tries again next launch.
             context.rollback()
             Logger.sync.error("DataMigrations failed: \(String(describing: error), privacy: .public)")
         }
     }
 
-    private static func fill<Model: PersistentModel>(
+    private static func assignStableIDs<Model: PersistentModel>(
         _ predicate: Predicate<Model>,
         in context: ModelContext,
-        update: (Model) -> Void
+        assign: (Model) -> Void
     ) throws -> Int {
         let models = try context.fetch(FetchDescriptor<Model>(predicate: predicate))
-        models.forEach(update)
+        models.forEach(assign)
         return models.count
     }
 }

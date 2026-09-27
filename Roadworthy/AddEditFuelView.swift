@@ -68,6 +68,12 @@ struct AddEditFuelView: View {
     @State private var loadedGallonsText = ""
     @State private var loadedPriceText = ""
 
+    /// Which of Gallons, Price/Gallon, and Total Cost the form is currently
+    /// calculating from the other two, and the exact text it last wrote
+    /// there. Typing into that field makes it the person's own value again.
+    @State private var calculatedField: FuelField?
+    @State private var calculatedText = ""
+
     private var isEditing: Bool { log != nil }
     private var gallonsValue: Double { Double(gallonsText) ?? 0 }
     private var priceValue: Double { Double(priceText) ?? 0 }
@@ -133,23 +139,34 @@ struct AddEditFuelView: View {
                         Text("Gallons")
                         Spacer()
                         AutoDecimalField(title: "Gallons", text: $gallonsText, decimalPlaces: 3, prefix: nil)
-                            .onChange(of: gallonsText) { _, _ in updateSuggestedTotal() }
+                            .onChange(of: gallonsText) { _, _ in fuelFieldChanged(.gallons) }
                     }
                     HStack {
                         Text("Price / Gallon")
                         Spacer()
                         AutoDecimalField(title: "Price", text: $priceText, decimalPlaces: 3)
-                            .onChange(of: priceText) { _, _ in updateSuggestedTotal() }
+                            .onChange(of: priceText) { _, _ in fuelFieldChanged(.price) }
                     }
                     HStack {
                         Text("Total Cost")
+                        if isTotalLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
                         Spacer()
                         AutoDecimalField(title: "Total", text: $totalCostText)
-                            .onChange(of: totalCostText) { _, _ in recalculateFuelMath(changed: .total) }
+                            .onChange(of: totalCostText) { _, _ in fuelFieldChanged(.total) }
+                            // Calculated from Gallons × Price, so it can't be
+                            // typed over. Clearing Gallons or Price unlocks it.
+                            .disabled(isTotalLocked)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityHint(isTotalLocked ? "Calculated from gallons and price. Clear either one to enter a total yourself." : "")
                     Toggle("Filled to Full Tank", isOn: $isFullTank)
                 } footer: {
-                    Text("Enter any two of Gallons, Price/Gallon, and Total Cost, and the third fills in automatically. Changing gallons or price recalculates the total, so enter any discount in Total Cost last.")
+                    Text("Enter any two of Gallons, Price/Gallon, and Total Cost, and the third fills in automatically. When Total Cost is calculated it's locked; to record a discount, enter Gallons and the total you paid, and Price/Gallon is calculated instead.")
                 }
 
                 Section {
@@ -219,38 +236,113 @@ struct AddEditFuelView: View {
         }
     }
 
-    /// Auto-fills Total Cost from Gallons × Price whenever either changes.
-    /// The person can still type over it afterward for a discount/tax/rounding.
-    private func updateSuggestedTotal() {
-        recalculateFuelMath(changed: .gallonsOrPrice)
+    // MARK: - Gallons × Price = Total
+
+    private enum FuelField: CaseIterable { case gallons, price, total }
+
+    private func text(_ field: FuelField) -> String {
+        switch field {
+        case .gallons: return gallonsText
+        case .price: return priceText
+        case .total: return totalCostText
+        }
     }
 
-    /// Gallons, Price/Gallon, and Total Cost are all derivable from each
-    /// other. This fills in whichever one is missing. The default flow is
-    /// Gallons × Price → Total, but if Gallons hasn't been entered yet and
-    /// both Price and Total are known (e.g. reading straight off a receipt),
-    /// Gallons gets worked out instead.
-    private enum FuelMathSource { case gallonsOrPrice, total }
+    private func setText(_ field: FuelField, _ value: String) {
+        switch field {
+        case .gallons: gallonsText = value
+        case .price: priceText = value
+        case .total: totalCostText = value
+        }
+    }
 
-    private func recalculateFuelMath(changed: FuelMathSource) {
-        // Loading an existing log sets gallons and price, which triggers
-        // this through onChange. Skip until the person actually changes one,
-        // so the saved total isn't replaced just by opening the log.
+    /// True while Total Cost is being calculated from Gallons × Price. The
+    /// field is read-only then; clearing Gallons or Price unlocks it.
+    private var isTotalLocked: Bool { calculatedField == .total }
+
+    /// A field's value, or nil if it's blank or zero.
+    private func amount(_ field: FuelField) -> Double? {
+        guard let value = Double(text(field)), value > 0, value.isFinite else { return nil }
+        return value
+    }
+
+    /// Runs whenever any of the three fields changes. Any two filled in
+    /// calculate the third, in any order:
+    /// - Gallons + Price → Total
+    /// - Gallons + Total → Price
+    /// - Price + Total → Gallons
+    /// Once a field is being calculated, it keeps updating as the other two
+    /// change (including digit by digit as they're typed). Typing into the
+    /// calculated field makes it the person's own value.
+    private func fuelFieldChanged(_ field: FuelField) {
+        // Loading an existing log sets all three fields, which fires this.
+        // Skip until the person actually changes gallons or price, so the
+        // saved values aren't recalculated just by opening the log.
         if isEditing, gallonsText == loadedGallonsText, priceText == loadedPriceText {
             return
         }
-        switch changed {
-        case .gallonsOrPrice:
-            if gallonsText.isEmpty, priceValue > 0, let total = Double(totalCostText), total > 0 {
-                gallonsText = String(format: "%.3f", total / priceValue)
-            } else if !gallonsText.isEmpty, priceValue > 0 {
-                let suggested = gallonsValue * priceValue
-                totalCostText = suggested == 0 ? "" : String(format: "%.2f", suggested)
+
+        // This form's own write coming back through onChange: nothing to do.
+        if field == calculatedField, text(field) == calculatedText {
+            return
+        }
+        // The person typed over the calculated field: it's theirs now.
+        if field == calculatedField {
+            calculatedField = nil
+        }
+
+        let target: FuelField?
+        if let calculatedField {
+            target = calculatedField
+        } else {
+            let emptyOthers = FuelField.allCases.filter { $0 != field && amount($0) == nil }
+            if emptyOthers.count == 1 {
+                // Two filled, one empty: fill the empty one.
+                target = emptyOthers[0]
+            } else if emptyOthers.isEmpty && field != .total {
+                // All three typed and gallons or price changed: update Total.
+                target = .total
+            } else {
+                // Only one field filled, or Total edited with all three typed
+                // (a discount or rounding): leave everything as entered.
+                target = nil
             }
+        }
+
+        if let target {
+            calculate(target)
+        }
+    }
+
+    private func calculate(_ target: FuelField) {
+        let result: Double?
+        switch target {
         case .total:
-            if gallonsText.isEmpty, priceValue > 0, let total = Double(totalCostText), total > 0 {
-                gallonsText = String(format: "%.3f", total / priceValue)
+            result = amount(.gallons).flatMap { g in amount(.price).map { g * $0 } }
+        case .gallons:
+            result = amount(.total).flatMap { t in amount(.price).map { t / $0 } }
+        case .price:
+            result = amount(.total).flatMap { t in amount(.gallons).map { t / $0 } }
+        }
+
+        guard let result, result.isFinite, result > 0 else {
+            // One of the other two was cleared. A calculated value has
+            // nothing left to be based on, so clear it too; a typed value is
+            // never cleared.
+            if calculatedField == target {
+                calculatedField = nil
+                calculatedText = ""
+                setText(target, "")
             }
+            return
+        }
+
+        // Same precision the fields themselves use.
+        let formatted = String(format: target == .total ? "%.2f" : "%.3f", result)
+        calculatedField = target
+        calculatedText = formatted
+        if text(target) != formatted {
+            setText(target, formatted)
         }
     }
 

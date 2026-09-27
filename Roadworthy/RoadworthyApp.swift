@@ -51,6 +51,20 @@ struct RoadworthyApp: App {
         ])
 
         #if DEBUG
+        // One-time step before the Production schema deploy. Must run before
+        // the ModelContainer below opens the same store file.
+        if CloudKitSchemaInitializer.isRequested {
+            CloudKitSchemaInitializer.run(modelTypes: [
+                Vehicle.self,
+                MaintenanceRecord.self,
+                FuelLog.self,
+                ExpenseRecord.self,
+                VehicleDocument.self,
+                MaintenanceReminder.self,
+                VehicleSpec.self,
+                TripLog.self
+            ])
+        }
         let forceLocalOnly = ProcessInfo.processInfo.arguments.contains("-ForceLocalOnlyStore")
         #else
         let forceLocalOnly = false
