@@ -10,7 +10,13 @@ struct AddEditMaintenanceView: View {
     // If editing an existing record, pass it in. Nil means "creating new".
     var record: MaintenanceRecord?
 
-    @State private var type: MaintenanceType = .oilChange
+    @State private var selectedType: MaintenanceType?
+    /// Reads as Custom until a type is chosen; validation blocks saving
+    /// before that, so the fallback is never stored.
+    private var type: MaintenanceType {
+        get { selectedType ?? .other }
+        nonmutating set { selectedType = newValue }
+    }
     @State private var title = ""
     @State private var otherTypeDescription = ""
     @State private var date = Date.now
@@ -52,6 +58,9 @@ struct AddEditMaintenanceView: View {
     }
 
     private var validationIssue: String? {
+        if selectedType == nil {
+            return "Choose a maintenance type to save."
+        }
         if requiresOdometer && enteredMileage == nil {
             return "Enter the odometer reading to save."
         }
@@ -75,7 +84,7 @@ struct AddEditMaintenanceView: View {
 
     private var draft: [AnyHashable] {
         formSnapshot(
-            type, title, otherTypeDescription, date, DigitsField.value(of: mileageText),
+            selectedType?.rawValue ?? "", title, otherTypeDescription, date, DigitsField.value(of: mileageText),
             Double(costText), shopName, notes, receiptPhotoData,
             dueByDate, nextDueDate, dueByMileage, DigitsField.value(of: nextDueMileageText)
         )
@@ -83,20 +92,48 @@ struct AddEditMaintenanceView: View {
 
     private var hasChanges: Bool { didLoad && draft != loadedDraft }
 
+    private static let nextDueDateRowID = "nextDueDateRow"
+    private static let nextDueMileageRowID = "nextDueMileageRow"
+
+    /// Waits a moment for the new row to appear, then scrolls it into view.
+    private func scroll(to id: String, with proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            withAnimation { proxy.scrollTo(id, anchor: .center) }
+        }
+    }
+
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 if didLoad, let validationIssue {
                     Section { FormIssueRow(message: validationIssue) }
                 }
 
                 Section {
-                    Picker("Type", selection: $type) {
-                        ForEach(MaintenanceType.allCases) { type in
-                            Text(type.displayName).tag(type)
+                    LabeledContent("Type") {
+                        Menu {
+                            ForEach(MaintenanceType.pickerOrder) { option in
+                                Button {
+                                    selectedType = option
+                                } label: {
+                                    if selectedType == option {
+                                        Label(option.menuName, systemImage: "checkmark")
+                                    } else {
+                                        Text(option.menuName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            if let selectedType {
+                                Text(selectedType.displayName)
+                            } else {
+                                Text("-select-").foregroundStyle(Color(.tertiaryLabel))
+                            }
                         }
                     }
-                    if type == .other {
+                    if selectedType == .other {
                         TextField("Describe the maintenance type", text: $otherTypeDescription)
                     }
                     TextField("Title (optional)", text: $title)
@@ -120,6 +157,7 @@ struct AddEditMaintenanceView: View {
                     Toggle("Due by Date", isOn: $dueByDate)
                     if dueByDate {
                         DatePicker("Next Due Date", selection: $nextDueDate, displayedComponents: .date)
+                            .id(Self.nextDueDateRowID)
                     }
                     Toggle("Due by Odometer", isOn: $dueByMileage)
                     if dueByMileage {
@@ -128,6 +166,7 @@ struct AddEditMaintenanceView: View {
                             placeholder: "Odometer",
                             text: $nextDueMileageText
                         )
+                        .id(Self.nextDueMileageRowID)
                     }
                 } header: {
                     Text("Next Due (Optional)")
@@ -143,6 +182,15 @@ struct AddEditMaintenanceView: View {
                         }
                     }
                 }
+            }
+            // Turning on a Next Due option reveals a field below the toggle.
+            // Scroll so it's on screen instead of leaving it off the bottom.
+            .onChange(of: dueByDate) { _, isOn in
+                if isOn { scroll(to: Self.nextDueDateRowID, with: proxy) }
+            }
+            .onChange(of: dueByMileage) { _, isOn in
+                if isOn { scroll(to: Self.nextDueMileageRowID, with: proxy) }
+            }
             }
             .navigationTitle(isEditing ? "Edit Maintenance" : "Log Maintenance")
             .navigationBarTitleDisplayMode(.inline)

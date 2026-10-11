@@ -11,7 +11,13 @@ struct AddEditReminderView: View {
     // If editing an existing reminder, pass it in. Nil means "creating new".
     var reminder: MaintenanceReminder?
 
-    @State private var type: MaintenanceType = .oilChange
+    @State private var selectedType: MaintenanceType?
+    /// Reads as Custom until a type is chosen; validation blocks saving
+    /// before that, so the fallback is never stored.
+    private var type: MaintenanceType {
+        get { selectedType ?? .other }
+        nonmutating set { selectedType = newValue }
+    }
     @State private var title = ""
     @State private var otherTypeDescription = ""
     @State private var notes = ""
@@ -44,6 +50,9 @@ struct AddEditReminderView: View {
     private var effectiveNotificationsEnabled: Bool { repeatByDate && notificationsEnabled }
 
     private var validationIssue: String? {
+        if selectedType == nil {
+            return "Choose a maintenance type to save."
+        }
         if !repeatByMileage && !repeatByDate {
             return "Turn on repeat by \(distanceUnit.displayName.lowercased()), by date, or both."
         }
@@ -71,7 +80,7 @@ struct AddEditReminderView: View {
 
     private var draft: [AnyHashable] {
         formSnapshot(
-            type, title, otherTypeDescription, notes,
+            selectedType?.rawValue ?? "", title, otherTypeDescription, notes,
             repeatByMileage, DigitsField.value(of: intervalMilesText),
             repeatByDate, DigitsField.value(of: intervalMonthsText),
             effectiveNotificationsEnabled, notifyDaysBefore
@@ -88,12 +97,28 @@ struct AddEditReminderView: View {
                 }
 
                 Section {
-                    Picker("Type", selection: $type) {
-                        ForEach(MaintenanceType.allCases) { type in
-                            Text(type.displayName).tag(type)
+                    LabeledContent("Type") {
+                        Menu {
+                            ForEach(MaintenanceType.pickerOrder) { option in
+                                Button {
+                                    selectedType = option
+                                } label: {
+                                    if selectedType == option {
+                                        Label(option.menuName, systemImage: "checkmark")
+                                    } else {
+                                        Text(option.menuName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            if let selectedType {
+                                Text(selectedType.displayName)
+                            } else {
+                                Text("-select-").foregroundStyle(Color(.tertiaryLabel))
+                            }
                         }
                     }
-                    if type == .other {
+                    if selectedType == .other {
                         TextField("Describe the maintenance type", text: $otherTypeDescription)
                     }
                     TextField("Title (optional)", text: $title)

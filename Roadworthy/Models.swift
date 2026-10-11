@@ -256,6 +256,82 @@ enum MaintenanceType: String, CaseIterable, Codable, Identifiable {
     case chainAdjustment = "Chain Adjustment"
     case valveClearance = "Valve Clearance"
     case coolantFlush = "Coolant Flush"
+    case aCSystem = "A/C System"
+    case acCompressor = "AC Compressor"
+    case bodyChassis = "Body/Chassis"
+    case brakeFluid = "Brake Fluid"
+    case brakeWearSensor = "Brake Wear Sensor"
+    case brakesFront = "Brakes Front"
+    case brakesRear = "Brakes Rear"
+    case cabinAirFilter = "Cabin Air Filter"
+    case carWash = "Car Wash"
+    case cleanMafSensor = "Clean MAF Sensor"
+    case clockSpring = "Clock Spring"
+    case clutchHydraulicFluid = "Clutch Hydraulic Fluid"
+    case clutchHydraulicSystem = "Clutch Hydraulic System"
+    case coolingSystem = "Cooling System"
+    case dieselExhaustFluid = "Diesel Exhaust Fluid"
+    case differentialFluid = "Differential Fluid"
+    case doorLockReplacement = "Door Lock Replacement"
+    case doors = "Doors"
+    case engineAntifreeze = "Engine Antifreeze"
+    case engineCoolantTemperatureSensor = "Engine Coolant Temperature Sensor"
+    case engineOil = "Engine Oil"
+    case exhaustSystem = "Exhaust System"
+    case fuelAdditive = "Fuel Additive"
+    case fuelFilter = "Fuel Filter"
+    case fuelLinesPipes = "Fuel Lines & Pipes"
+    case fuelPump = "Fuel Pump"
+    case fuelSystem = "Fuel System"
+    case glassMirrors = "Glass/Mirrors"
+    case heatingSystem = "Heating System"
+    case horns = "Horns"
+    case ignitionCoilPack = "Ignition Coil Pack"
+    case inCabinAirFilter = "In-Cabin Air Filter"
+    case insurance = "Insurance"
+    case licenseTag = "License Tag"
+    case lights = "Lights"
+    case lubricatePropellerShaft = "Lubricate Propeller Shaft"
+    case mapSensor = "MAP Sensor"
+    case modification = "Modification"
+    case newFobKey = "New FOB / Key"
+    case newTires = "New Tires"
+    case oilFilter = "Oil Filter"
+    case powerSteeringFluid = "Power Steering Fluid"
+    case preventativeMaint = "Preventative Maint."
+    case radiator = "Radiator"
+    case reTorque = "Re-torque"
+    case recall = "Recall"
+    case repairs = "Repairs"
+    case rotorsFront = "Rotors Front"
+    case rustModule = "Rust Module"
+    case safetyDevices = "Safety Devices"
+    case seafoam = "Seafoam"
+    case seafoamGasTank = "Seafoam Gas Tank"
+    case serviceBulletin = "Service Bulletin"
+    case shocksStruts = "Shocks & Struts"
+    case sparkPlugWires = "Spark Plug Wires"
+    case sparkPlugs = "Spark Plugs"
+    case steeringSystem = "Steering System"
+    case suspensionSystem = "Suspension System"
+    case thermostat = "Thermostat"
+    case timingBelt = "Timing Belt"
+    case tireBalance = "Tire Balance"
+    case tireInflation = "Tire Inflation"
+    case tirePressure = "Tire Pressure"
+    case torquePropellerShaft = "Torque Propeller Shaft"
+    case transferCaseOil = "Transfer Case Oil"
+    case transferCaseOilChange = "Transfer Case Oil Change"
+    case transmissionFluid = "Transmission Fluid"
+    case transmissionFluidChange = "Transmission Fluid Change"
+    case upholsteryRepair = "Upholstery Repair"
+    case vacuumPumpReplacement = "Vacuum Pump Replacement"
+    case valveCoverGasketReplacement = "Valve Cover Gasket Replacement"
+    case waterPump = "Water Pump"
+    case wheelAlignment = "Wheel Alignment"
+    case windshieldWasherFluid = "Windshield Washer Fluid"
+    case windshieldWipers = "Windshield Wipers"
+    case belts = "Belts"
     case other = "Other"
 
     var id: String { rawValue }
@@ -265,6 +341,19 @@ enum MaintenanceType: String, CaseIterable, Codable, Identifiable {
     /// The underlying stored value stays "Other" so existing data is unaffected.
     var displayName: String {
         self == .other ? "Custom" : rawValue
+    }
+
+    /// Wording for the custom entry in the Type menus.
+    var menuName: String { self == .other ? "* Add Custom Task *" : displayName }
+
+    /// Order used by the Type menus: "Add Custom Task" first, then everything
+    /// else alphabetical by display name.
+    static var pickerOrder: [MaintenanceType] {
+        allCases.sorted { a, b in
+            if a == .other { return true }
+            if b == .other { return false }
+            return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+        }
     }
 }
 
