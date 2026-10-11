@@ -242,7 +242,16 @@ nonisolated enum ImageNormalizer {
     static let maxLongEdge: CGFloat = 1600
     static let jpegQuality: CGFloat = 0.7
 
-    static func jpegData(from image: UIImage) -> Data? {
+    /// Larger size used while a photo is being cropped and rotated, so the
+    /// final crop of a small area (a receipt in a wide photo) stays sharp.
+    static let workingLongEdge: CGFloat = 3000
+    static let workingJPEGQuality: CGFloat = 0.9
+
+    static func jpegData(
+        from image: UIImage,
+        maxLongEdge: CGFloat = ImageNormalizer.maxLongEdge,
+        quality: CGFloat = ImageNormalizer.jpegQuality
+    ) -> Data? {
         let size = image.size
         let longEdge = max(size.width, size.height)
         guard longEdge > 0 else { return nil }
@@ -255,11 +264,20 @@ nonisolated enum ImageNormalizer {
         let resized = UIGraphicsImageRenderer(size: target, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: target))
         }
-        return resized.jpegData(compressionQuality: jpegQuality)
+        return resized.jpegData(compressionQuality: quality)
+    }
+
+    /// Upright, high-quality copy for the crop and rotate screen.
+    static func workingData(from image: UIImage) -> Data? {
+        jpegData(from: image, maxLongEdge: workingLongEdge, quality: workingJPEGQuality)
+    }
+
+    static func workingData(from data: Data) -> Data? {
+        UIImage(data: data).flatMap { workingData(from: $0) }
     }
 
     static func normalize(_ data: Data) -> Data? {
-        UIImage(data: data).flatMap(jpegData(from:))
+        UIImage(data: data).flatMap { jpegData(from: $0) }
     }
 
     /// Decodes a photo straight to a small image with ImageIO, without ever
@@ -302,7 +320,13 @@ enum ThumbnailCache {
     }
 }
 
-/// Loads a photo chosen in a PhotosPicker, normalized to the standard size.
+private struct PendingPhoto: Identifiable {
+    let id = UUID()
+    let data: Data
+}
+
+/// Loads a photo chosen in a PhotosPicker, then lets the person rotate and
+/// crop it before it is attached (see PhotoCropRotateView).
 /// Shows an alert if the photo can't be loaded (for example an iCloud Photos
 /// original that hasn't downloaded while offline), instead of silently
 /// attaching nothing.
@@ -311,6 +335,7 @@ private struct PickedPhotoLoader: ViewModifier {
     @Binding var data: Data?
     @Binding var isLoading: Bool
     @State private var showingFailure = false
+    @State private var pendingPhoto: PendingPhoto?
 
     func body(content: Content) -> some View {
         content
@@ -319,11 +344,13 @@ private struct PickedPhotoLoader: ViewModifier {
                 isLoading = true
                 Task { @MainActor in
                     let raw = try? await newItem.loadTransferable(type: Data.self)
-                    let normalized = await Task.detached(priority: .userInitiated) {
-                        raw.flatMap(ImageNormalizer.normalize)
+                    let working = await Task.detached(priority: .userInitiated) {
+                        raw.flatMap { ImageNormalizer.workingData(from: $0) }
                     }.value
-                    if let normalized {
-                        data = normalized
+                    if let working {
+                        // The photo is only attached after it has been
+                        // rotated and cropped (or accepted as is).
+                        pendingPhoto = PendingPhoto(data: working)
                     } else {
                         showingFailure = true
                     }
@@ -331,6 +358,16 @@ private struct PickedPhotoLoader: ViewModifier {
                     item = nil
                     isLoading = false
                 }
+            }
+            .fullScreenCover(item: $pendingPhoto) { pending in
+                PhotoCropRotateView(
+                    workingData: pending.data,
+                    onDone: { cropped in
+                        data = cropped
+                        pendingPhoto = nil
+                    },
+                    onCancel: { pendingPhoto = nil }
+                )
             }
             .alert("Couldn't Load Photo", isPresented: $showingFailure) {
                 Button("OK", role: .cancel) {}

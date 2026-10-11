@@ -122,7 +122,6 @@ struct AddEditVehicleView: View {
                     }
                     .sheet(isPresented: $showingCamera) {
                         CameraPicker(imageData: $photoData)
-                            .ignoresSafeArea()
                     }
                     .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
                     .loadsPickedPhoto($selectedPhoto, into: $photoData, isLoading: $isLoadingPhoto)

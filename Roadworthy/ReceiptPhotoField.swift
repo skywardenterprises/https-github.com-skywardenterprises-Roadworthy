@@ -51,7 +51,6 @@ struct ReceiptPhotoField: View {
         }
         .sheet(isPresented: $showingCamera) {
             CameraPicker(imageData: $photoData)
-                .ignoresSafeArea()
         }
         .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhoto, matching: .images)
         .loadsPickedPhoto($selectedPhoto, into: $photoData, isLoading: isLoading)

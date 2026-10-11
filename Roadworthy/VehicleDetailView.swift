@@ -547,7 +547,6 @@ private struct OverviewTab: View {
         }
         .sheet(isPresented: $showingInsuranceCamera) {
             CameraPicker(imageData: insuranceCardBinding)
-                .ignoresSafeArea()
         }
         .photosPicker(isPresented: $showingInsurancePhotoPicker, selection: $selectedInsurancePhoto, matching: .images)
         // Same loader as every other photo field: normalized size, the same

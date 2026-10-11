@@ -91,7 +91,6 @@ struct AddEditDocumentView: View {
                     }
                     .sheet(isPresented: $showingCamera) {
                         CameraPicker(imageData: $imageData)
-                            .ignoresSafeArea()
                     }
                     .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
                     .loadsPickedPhoto($selectedPhoto, into: $imageData, isLoading: $isLoadingPhoto)
