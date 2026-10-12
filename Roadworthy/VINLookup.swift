@@ -32,7 +32,7 @@ nonisolated enum VINDecodeError: Error {
     var message: String {
         switch self {
         case .offline:
-            return L("Couldn't reach the VIN database. Check your internet connection, or skip this and enter the details yourself.")
+            return L("Couldn't reach the VIN database. Check your internet connection, or tap Skip to keep the VIN and look it up later.")
         case .notFound:
             return L("No vehicle was found for that VIN. Check the characters and try again.")
         case .service:
@@ -135,6 +135,7 @@ struct VINPromptView: View {
     @Environment(\.dismiss) private var dismiss
 
     let skipTitle: LocalizedStringKey
+    let onSkip: ((String) -> Void)?
     let onDecoded: (String, VINDecodeResult) -> Void
 
     @State private var vin: String
@@ -144,9 +145,13 @@ struct VINPromptView: View {
     @State private var showingHelp = false
     @FocusState private var focused: Bool
 
-    init(initialVIN: String = "", skipTitle: LocalizedStringKey, onDecoded: @escaping (String, VINDecodeResult) -> Void) {
+    /// `onSkip` receives whatever is in the VIN field when the person skips,
+    /// so a scanned VIN isn't lost when the lookup can't run (for example
+    /// with no internet).
+    init(initialVIN: String = "", skipTitle: LocalizedStringKey, onSkip: ((String) -> Void)? = nil, onDecoded: @escaping (String, VINDecodeResult) -> Void) {
         _vin = State(initialValue: VINDecoder.normalized(initialVIN))
         self.skipTitle = skipTitle
+        self.onSkip = onSkip
         self.onDecoded = onDecoded
     }
 
@@ -238,7 +243,10 @@ struct VINPromptView: View {
                         .buttonStyle(.bordered)
                         .disabled(!canLookUp)
 
-                    Button(skipTitle) { dismiss() }
+                    Button(skipTitle) {
+                        onSkip?(vin)
+                        dismiss()
+                    }
                         .disabled(isLooking)
 
                     VStack(spacing: 8) {

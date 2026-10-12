@@ -31,6 +31,14 @@ struct AddEditVehicleView: View {
     @State private var currentValueText = ""
     @State private var engineSizeText = ""
     @State private var engineSizeUnit: EngineSizeUnit = .liters
+    @State private var trim = ""
+    @State private var bodyStyle = ""
+    @State private var cylindersText = ""
+    @State private var fuelType = ""
+    @State private var driveType = ""
+    @State private var transmission = ""
+    @State private var showingVINPrompt = false
+    @State private var vinNote: String?
 
     @State private var didLoad = false
     @State private var saveError: String?
@@ -76,7 +84,8 @@ struct AddEditVehicleView: View {
             nickname, make, model, year, vin.uppercased(), licensePlate.uppercased(),
             DigitsField.value(of: mileageText), purchaseDate, photoData, isActive, vehicleType,
             Double(purchasePriceText), Double(currentValueText),
-            parsedEngineSize, engineSizeUnit.rawValue
+            parsedEngineSize, engineSizeUnit.rawValue,
+            trim.trimmed, bodyStyle.trimmed, parsedCylinders, fuelType.trimmed, driveType.trimmed, transmission.trimmed
         )
     }
 
@@ -86,6 +95,11 @@ struct AddEditVehicleView: View {
     private var parsedEngineSize: Double? {
         let cleaned = engineSizeText.replacingOccurrences(of: ",", with: ".")
         guard let value = Double(cleaned), value > 0 else { return nil }
+        return value
+    }
+
+    private var parsedCylinders: Int? {
+        guard let value = Int(cylindersText), value > 0 else { return nil }
         return value
     }
 
@@ -205,6 +219,16 @@ struct AddEditVehicleView: View {
                         .onChange(of: vin) { _, newValue in
                             vin = newValue.uppercased()
                         }
+                    Button {
+                        showingVINPrompt = true
+                    } label: {
+                        Label("Look Up VIN", systemImage: "magnifyingglass")
+                    }
+                    if let vinNote {
+                        Text(vinNote)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     TextField("License Plate", text: $licensePlate)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.characters)
@@ -217,6 +241,23 @@ struct AddEditVehicleView: View {
                         text: $mileageText
                     )
                     DatePicker("Purchase Date", selection: $purchaseDate, displayedComponents: .date)
+                }
+
+                Section("Additional Details") {
+                    optionalTextRow("Trim", text: $trim)
+                    optionalTextRow("Body Style", text: $bodyStyle)
+                    LabeledContent("Cylinders") {
+                        TextField("Optional", text: $cylindersText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .onChange(of: cylindersText) { _, newValue in
+                                let filtered = String(newValue.filter(\.isNumber).prefix(2))
+                                if filtered != newValue { cylindersText = filtered }
+                            }
+                    }
+                    optionalTextRow("Fuel Type", text: $fuelType)
+                    optionalTextRow("Transmission", text: $transmission)
+                    optionalTextRow("Drive Type", text: $driveType)
                 }
 
                 Section {
@@ -272,9 +313,57 @@ struct AddEditVehicleView: View {
                 }
             }
             .onAppear(perform: loadExistingValues)
+            .sheet(isPresented: $showingVINPrompt) {
+                VINPromptView(
+                    initialVIN: vin,
+                    skipTitle: isEditing ? "Cancel" : "Skip, I'll Enter It Myself"
+                ) { decodedVIN, result in
+                    applyVIN(decodedVIN, result)
+                    showingVINPrompt = false
+                }
+            }
             .saveErrorAlert($saveError)
             .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
         }
+    }
+
+    private func optionalTextRow(_ title: LocalizedStringKey, text: Binding<String>) -> some View {
+        LabeledContent(title) {
+            TextField("Optional", text: text)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    /// Copies what the VIN lookup returned into the form. Nothing is saved
+    /// until the person taps Save, and blank results never erase typed values.
+    private func applyVIN(_ decodedVIN: String, _ result: VINDecodeResult) {
+        vin = decodedVIN
+        if let decodedYear = result.year { year = decodedYear }
+        if !result.make.isEmpty { make = result.make }
+        if !result.model.isEmpty { model = result.model }
+        if !result.trim.isEmpty { trim = result.trim }
+        if !result.bodyStyle.isEmpty { bodyStyle = result.bodyStyle }
+        if !result.fuelType.isEmpty { fuelType = result.fuelType }
+        if !result.driveType.isEmpty { driveType = result.driveType }
+        if !result.transmission.isEmpty { transmission = result.transmission }
+        if let cylinders = result.cylinders { cylindersText = String(cylinders) }
+        if let size = result.engineSize {
+            engineSizeUnit = EngineSizeUnit(rawValue: result.engineUnitSymbol) ?? .liters
+            engineSizeText = size.formatted(.number.precision(.fractionLength(0...2)).grouping(.never))
+        }
+        switch result.kind {
+        case .car: vehicleType = .car
+        case .truck: vehicleType = .truck
+        case .motorcycle: vehicleType = .motorcycle
+        case .rv: vehicleType = .rv
+        case nil: break
+        }
+        var note = L("Vehicle details were filled in from the VIN. Review them before saving.")
+        if result.checkDigitMismatch {
+            note += " " + L("The VIN's check digit didn't match, so double-check it for typos.")
+        }
+        vinNote = note
+        Haptics.success()
     }
 
     private func loadExistingValues() {
@@ -285,7 +374,14 @@ struct AddEditVehicleView: View {
             loadedDraft = draft
             didLoad = true
         }
-        guard let vehicle else { return }
+        guard let vehicle else {
+            // New vehicle: offer the VIN lookup once the sheet has settled.
+            Task {
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                showingVINPrompt = true
+            }
+            return
+        }
         nickname = vehicle.nickname
         make = vehicle.make
         model = vehicle.model
@@ -299,6 +395,12 @@ struct AddEditVehicleView: View {
         vehicleType = vehicle.vehicleType
         purchasePriceText = vehicle.purchasePrice == 0 ? "" : String(vehicle.purchasePrice)
         currentValueText = vehicle.estimatedCurrentValue.map { String($0) } ?? ""
+        trim = vehicle.trim
+        bodyStyle = vehicle.bodyStyle
+        cylindersText = vehicle.cylinders.map { String($0) } ?? ""
+        fuelType = vehicle.fuelType
+        driveType = vehicle.driveType
+        transmission = vehicle.transmission
         engineSizeUnit = vehicle.engineSizeUnit
         engineSizeText = vehicle.engineSize.map { $0.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) } ?? ""
     }
@@ -324,6 +426,12 @@ struct AddEditVehicleView: View {
             vehicle.purchasePrice = purchasePrice
             vehicle.engineSize = parsedEngineSize
             vehicle.engineSizeUnit = engineSizeUnit
+            vehicle.trim = trim.trimmed
+            vehicle.bodyStyle = bodyStyle.trimmed
+            vehicle.cylinders = parsedCylinders
+            vehicle.fuelType = fuelType.trimmed
+            vehicle.driveType = driveType.trimmed
+            vehicle.transmission = transmission.trimmed
 
             if let currentValue {
                 // Only refresh the "last updated" date if the value actually changed.
@@ -361,6 +469,12 @@ struct AddEditVehicleView: View {
             )
             newVehicle.engineSize = parsedEngineSize
             newVehicle.engineSizeUnit = engineSizeUnit
+            newVehicle.trim = trim.trimmed
+            newVehicle.bodyStyle = bodyStyle.trimmed
+            newVehicle.cylinders = parsedCylinders
+            newVehicle.fuelType = fuelType.trimmed
+            newVehicle.driveType = driveType.trimmed
+            newVehicle.transmission = transmission.trimmed
             context.insert(newVehicle)
         }
         if let message = context.saveReportingErrors() {

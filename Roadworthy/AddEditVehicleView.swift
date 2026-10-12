@@ -316,11 +316,13 @@ struct AddEditVehicleView: View {
             .sheet(isPresented: $showingVINPrompt) {
                 VINPromptView(
                     initialVIN: vin,
-                    skipTitle: isEditing ? "Cancel" : "Skip, I'll Enter It Myself"
-                ) { decodedVIN, result in
-                    applyVIN(decodedVIN, result)
-                    showingVINPrompt = false
-                }
+                    skipTitle: isEditing ? "Cancel" : "Skip, I'll Enter It Myself",
+                    onSkip: isEditing ? nil : { skippedVIN in keepSkippedVIN(skippedVIN) },
+                    onDecoded: { decodedVIN, result in
+                        applyVIN(decodedVIN, result)
+                        showingVINPrompt = false
+                    }
+                )
             }
             .saveErrorAlert($saveError)
             .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
@@ -332,6 +334,14 @@ struct AddEditVehicleView: View {
             TextField("Optional", text: text)
                 .multilineTextAlignment(.trailing)
         }
+    }
+
+    /// Keeps a VIN that was scanned or typed but not looked up (for example
+    /// with no internet), so Look Up VIN can be tapped later.
+    private func keepSkippedVIN(_ skippedVIN: String) {
+        guard !skippedVIN.isEmpty else { return }
+        vin = skippedVIN
+        vinNote = L("The VIN was kept. Tap Look Up VIN when you're back online.")
     }
 
     /// Copies what the VIN lookup returned into the form. Nothing is saved

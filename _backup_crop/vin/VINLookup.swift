@@ -141,6 +141,7 @@ struct VINPromptView: View {
     @State private var isLooking = false
     @State private var errorMessage: String?
     @State private var showingScanner = false
+    @State private var showingHelp = false
     @FocusState private var focused: Bool
 
     init(initialVIN: String = "", skipTitle: LocalizedStringKey, onDecoded: @escaping (String, VINDecodeResult) -> Void) {
@@ -169,7 +170,7 @@ struct VINPromptView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
 
-                    if VINScannerView.isSupported {
+                    Group {
                         VStack(spacing: 6) {
                             Button {
                                 focused = false
@@ -187,6 +188,13 @@ struct VINPromptView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
+
+                            Button {
+                                showingHelp = true
+                            } label: {
+                                Label("How does scanning work?", systemImage: "questionmark.circle")
+                                    .font(.footnote)
+                            }
                         }
 
                         HStack {
@@ -226,15 +234,9 @@ struct VINPromptView: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    if VINScannerView.isSupported {
-                        Button { lookUp() } label: { lookUpLabel }
-                            .buttonStyle(.bordered)
-                            .disabled(!canLookUp)
-                    } else {
-                        Button { lookUp() } label: { lookUpLabel }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!canLookUp)
-                    }
+                    Button { lookUp() } label: { lookUpLabel }
+                        .buttonStyle(.bordered)
+                        .disabled(!canLookUp)
 
                     Button(skipTitle) { dismiss() }
                         .disabled(isLooking)
@@ -254,6 +256,7 @@ struct VINPromptView: View {
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
+            .sheet(isPresented: $showingHelp) { VINScanHelpView() }
             .fullScreenCover(isPresented: $showingScanner) {
                 VINScannerView { scanned in
                     vin = scanned
