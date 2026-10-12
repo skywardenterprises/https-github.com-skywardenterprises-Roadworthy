@@ -39,18 +39,18 @@ struct AddEditTripView: View {
 
     private var validationIssue: String? {
         guard let start = enteredStart, let end = enteredEnd else {
-            return "Enter the start and end odometer readings to save."
+            return L("Enter the start and end odometer readings to save.")
         }
         if end <= start {
-            return "The end odometer must be higher than the start."
+            return L("The end odometer must be higher than the start.")
         }
         // Distances are stored in whole miles, so a very short trip entered
         // in kilometers can round to zero.
         if convertToMiles(end, from: distanceUnit) <= convertToMiles(start, from: distanceUnit) {
-            return "Trips shorter than 1 mile can't be saved, because distances are stored in whole miles."
+            return L("Trips shorter than 1 mile can't be saved, because distances are stored in whole miles.")
         }
         if purpose == .business && businessPurposeNote.trimmed.isEmpty {
-            return "Enter the business purpose. The IRS requires one for each business trip."
+            return L("Enter the business purpose. The IRS requires one for each business trip.")
         }
         return nil
     }
@@ -88,7 +88,7 @@ struct AddEditTripView: View {
                 Section {
                     Picker("Purpose", selection: $purpose) {
                         ForEach(TripPurpose.allCases) { purpose in
-                            Text(purpose.rawValue).tag(purpose)
+                            Text(LocalizedStringKey(purpose.rawValue)).tag(purpose)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -117,7 +117,7 @@ struct AddEditTripView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Trip" : "Log Trip")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Trip" : "Log Trip"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {
@@ -199,6 +199,7 @@ struct AddEditTripView: View {
             context.insert(newTrip)
         }
 
+        vehicle.odometerUpdatedDate = .now  // restarts the 30-day odometer check-in clock
         if end > vehicle.currentMileage {
             vehicle.currentMileage = end
         }

@@ -32,10 +32,10 @@ struct AddEditDocumentView: View {
 
     private var validationIssue: String? {
         if title.trimmed.isEmpty {
-            return "Enter a title to save."
+            return L("Enter a title to save.")
         }
         if isLoadingPhoto {
-            return "Waiting for the photo to finish loading…"
+            return L("Waiting for the photo to finish loading…")
         }
         return nil
     }
@@ -73,7 +73,7 @@ struct AddEditDocumentView: View {
                                 Image(systemName: "photo.badge.plus")
                                     .font(.title)
                             }
-                            Text(imageData == nil ? "Add Photo" : "Change Photo")
+                            Text(LocalizedStringKey(imageData == nil ? "Add Photo" : "Change Photo"))
                         }
                     }
                     .foregroundStyle(.primary)
@@ -122,7 +122,7 @@ struct AddEditDocumentView: View {
                 // document afterward. Documents are deleted by swiping in the
                 // list, with a confirmation.
             }
-            .navigationTitle(isEditing ? "Edit Document" : "Add Document")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Document" : "Add Document"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {

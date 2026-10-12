@@ -51,16 +51,16 @@ struct AddEditReminderView: View {
 
     private var validationIssue: String? {
         if selectedType == nil {
-            return "Choose a maintenance type to save."
+            return L("Choose a maintenance type to save.")
         }
         if !repeatByMileage && !repeatByDate {
-            return "Turn on repeat by \(distanceUnit.displayName.lowercased()), by date, or both."
+            return L("Turn on repeat by %@, by date, or both.", distanceUnit.displayName.lowercased())
         }
         if repeatByMileage && enteredIntervalMiles <= 0 {
-            return "Enter how many \(distanceUnit.displayName.lowercased()) between services."
+            return L("Enter how many %@ between services.", distanceUnit.displayName.lowercased())
         }
         if repeatByDate && enteredIntervalMonths <= 0 {
-            return "Enter how many months between services."
+            return L("Enter how many months between services.")
         }
         return nil
     }
@@ -153,7 +153,7 @@ struct AddEditReminderView: View {
 
                 if repeatByMileage && repeatByDate {
                     Section {
-                        Text("Whichever happens first — the mileage or the date — is what triggers this reminder.")
+                        Text("Whichever happens first — the odometer reading or the date — is what triggers this reminder.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -170,7 +170,7 @@ struct AddEditReminderView: View {
                             )
                         }
                     } else {
-                        Text("Turn on \"Repeat Every X Months\" above to enable notifications — mileage-only reminders can't be scheduled in advance, since there's no way to predict when a certain mileage will be reached.")
+                        Text("Turn on \"Repeat Every X Months\" above to enable notifications — odometer-only reminders can't be scheduled in advance, since there's no way to predict when a certain odometer reading will be reached.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -203,7 +203,7 @@ struct AddEditReminderView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Reminder" : "Add Reminder")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Reminder" : "Add Reminder"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {

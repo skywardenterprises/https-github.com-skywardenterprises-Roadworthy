@@ -21,7 +21,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Roadworthy uses your camera to take photos of receipts, documents, insurance cards, and your vehicle.</string>
+	<string>Roadworthy uses your camera to take photos of receipts, documents, insurance cards, and your vehicle. It also scans the barcode on your vehicle to read its VIN.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

@@ -103,14 +103,14 @@ struct ImportView: View {
     private func resultsSection(_ result: ImportResult) -> some View {
         Group {
             Section {
-                Text("Found \(result.fuelEntries.count) fuel-up\(result.fuelEntries.count == 1 ? "" : "s") and \(result.maintenanceEntries.count) maintenance record\(result.maintenanceEntries.count == 1 ? "" : "s") across \(result.vehicleNames.count) vehicle\(result.vehicleNames.count == 1 ? "" : "s").")
+                Text("Found — fuel-ups: \(result.fuelEntries.count), maintenance records: \(result.maintenanceEntries.count), vehicles: \(result.vehicleNames.count).")
                 let excludedCount = excludedFuelIndices.count + excludedMaintenanceIndices.count
                 if excludedCount > 0 {
                     Text("\(excludedCount) flagged as possible duplicates and excluded by default — see below.")
                         .foregroundStyle(.orange)
                 }
                 if !result.skippedRows.isEmpty {
-                    Text("\(result.skippedRows.count) row\(result.skippedRows.count == 1 ? "" : "s") couldn't be read and won't be imported — see below.")
+                    Text("Rows that couldn't be read and won't be imported: \(result.skippedRows.count) — see below.")
                         .foregroundStyle(.orange)
                 }
             }
@@ -352,11 +352,11 @@ struct ImportView: View {
             if didAccess { url.stopAccessingSecurityScopedResource() }
 
             guard let data else {
-                showError("Couldn't Open File", "Roadworthy couldn't open that file. If it's stored in iCloud Drive or another cloud service, make sure it has finished downloading, then try again.")
+                showError(L("Couldn't Open File"), L("Roadworthy couldn't open that file. If it's stored in iCloud Drive or another cloud service, make sure it has finished downloading, then try again."))
                 return
             }
             guard let text = decodeText(data) else {
-                showError("Couldn't Read File", "That file isn't in a text format Roadworthy can read. Export it from \(selectedSource.rawValue) again as a CSV file.")
+                showError(L("Couldn't Read File"), L("That file isn't in a text format Roadworthy can read. Export it from %@ again as a CSV file.", selectedSource.rawValue))
                 return
             }
 
@@ -379,7 +379,7 @@ struct ImportView: View {
                 reviewAgainstMappings()
             }
         case .failure:
-            showError("Couldn't Open File", "Roadworthy couldn't open that file. Please try again.")
+            showError(L("Couldn't Open File"), L("Roadworthy couldn't open that file. Please try again."))
         }
     }
 
@@ -458,15 +458,15 @@ struct ImportView: View {
         } catch {
             context.rollback()
             isImporting = false
-            showError("Import Failed", "Nothing was imported. The data couldn't be saved (\((error as NSError).domain) \((error as NSError).code)). Please try again, and contact support if it keeps happening.")
+            showError(L("Import Failed"), L("Nothing was imported. The data couldn't be saved (%@ %@). Please try again, and contact support if it keeps happening.", (error as NSError).domain, "\((error as NSError).code)"))
             return
         }
 
         Haptics.success()
-        var message = "Imported \(fuelCount) fuel-up\(fuelCount == 1 ? "" : "s") and \(maintenanceCount) maintenance record\(maintenanceCount == 1 ? "" : "s")."
+        var message = L("Imported — fuel-ups: %lld, maintenance records: %lld.", fuelCount, maintenanceCount)
         let skipped = result.skippedRows.count
         if skipped > 0 {
-            message += " \(skipped) row\(skipped == 1 ? " was" : "s were") skipped because they couldn't be read."
+            message += L(" Rows skipped because they couldn't be read: %lld.", skipped)
         }
         successMessage = message
         importResult = nil

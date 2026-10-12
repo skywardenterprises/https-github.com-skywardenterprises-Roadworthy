@@ -88,16 +88,16 @@ struct AddEditFuelView: View {
 
     private var validationIssue: String? {
         if enteredMileage == nil {
-            return "Enter the odometer reading to save."
+            return L("Enter the odometer reading to save.")
         }
         if gallonsValue <= 0 {
-            return "Enter the gallons pumped."
+            return L("Enter the gallons pumped.")
         }
         if (Double(totalCostText) ?? 0) <= 0 && priceValue <= 0 {
-            return "Enter the price per gallon or the total cost."
+            return L("Enter the price per gallon or the total cost.")
         }
         if isLoadingPhoto {
-            return "Waiting for the receipt photo to finish loading…"
+            return L("Waiting for the receipt photo to finish loading…")
         }
         return nil
     }
@@ -129,7 +129,7 @@ struct AddEditFuelView: View {
                     )
                     Picker("Fuel Grade", selection: $fuelGrade) {
                         ForEach(FuelGrade.allCases) { grade in
-                            Text(grade.rawValue).tag(grade)
+                            Text(LocalizedStringKey(grade.rawValue)).tag(grade)
                         }
                     }
                 }
@@ -173,7 +173,7 @@ struct AddEditFuelView: View {
                     AutocompleteField(title: "Station Name / Location", text: $stationName, history: stationNameHistory)
                     Picker("Payment Method", selection: $paymentMethod) {
                         ForEach(FuelPaymentMethod.allCases) { method in
-                            Text(method.rawValue).tag(method)
+                            Text(LocalizedStringKey(method.rawValue)).tag(method)
                         }
                     }
                 }
@@ -211,7 +211,7 @@ struct AddEditFuelView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Fuel" : "Log Fuel")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Fuel" : "Log Fuel"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {
@@ -431,6 +431,7 @@ struct AddEditFuelView: View {
             in: vehicle.fuelLogs
         )
 
+        vehicle.odometerUpdatedDate = .now  // restarts the 30-day odometer check-in clock
         if mileage > vehicle.currentMileage {
             vehicle.currentMileage = mileage
         }

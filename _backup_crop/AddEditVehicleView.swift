@@ -56,13 +56,13 @@ struct AddEditVehicleView: View {
 
     private var validationIssue: String? {
         if make.trimmed.isEmpty || model.trimmed.isEmpty {
-            return "Enter a make and model to save."
+            return L("Enter a make and model to save.")
         }
         if let vehicle, enteredMileage < vehicle.highestLoggedMileage {
-            return "Current mileage can't be lower than the highest logged reading (\(formattedDistance(vehicle.highestLoggedMileage, unit: distanceUnit)))."
+            return L("Current odometer can't be lower than the highest logged reading (%@).", formattedDistance(vehicle.highestLoggedMileage, unit: distanceUnit))
         }
         if isLoadingPhoto {
-            return "Waiting for the photo to finish loading…"
+            return L("Waiting for the photo to finish loading…")
         }
         return nil
     }
@@ -104,7 +104,7 @@ struct AddEditVehicleView: View {
                                 Image(systemName: "photo.badge.plus")
                                     .font(.title)
                             }
-                            Text(photoData == nil ? "Add Photo" : "Change Photo")
+                            Text(LocalizedStringKey(photoData == nil ? "Add Photo" : "Change Photo"))
                         }
                     }
                     .foregroundStyle(.primary)
@@ -122,7 +122,6 @@ struct AddEditVehicleView: View {
                     }
                     .sheet(isPresented: $showingCamera) {
                         CameraPicker(imageData: $photoData)
-                            .ignoresSafeArea()
                     }
                     .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
                     .loadsPickedPhoto($selectedPhoto, into: $photoData, isLoading: $isLoadingPhoto)
@@ -150,7 +149,14 @@ struct AddEditVehicleView: View {
                 Section("Vehicle Info") {
                     Picker("Vehicle Type", selection: $vehicleType) {
                         ForEach(VehicleType.allCases) { type in
-                            Label(type.rawValue, systemImage: type.iconName).tag(type)
+                            Group {
+                                if let asset = type.customIconAsset {
+                                    Label(LocalizedStringKey(type.rawValue), image: asset)
+                                } else {
+                                    Label(LocalizedStringKey(type.rawValue), systemImage: type.iconName)
+                                }
+                            }
+                            .tag(type)
                         }
                     }
                     TextField("Nickname (e.g. My Truck)", text: $nickname)
@@ -178,8 +184,8 @@ struct AddEditVehicleView: View {
                             licensePlate = newValue.uppercased()
                         }
                     DigitsField(
-                        label: "Current Mileage (\(distanceUnit.rawValue))",
-                        placeholder: "Mileage",
+                        label: "Current Odometer (\(distanceUnit.rawValue))",
+                        placeholder: "Odometer",
                         text: $mileageText
                     )
                     DatePicker("Purchase Date", selection: $purchaseDate, displayedComponents: .date)
@@ -223,7 +229,7 @@ struct AddEditVehicleView: View {
                 }
                 #endif
             }
-            .navigationTitle(isEditing ? "Edit Vehicle" : "Add Vehicle")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Vehicle" : "Add Vehicle"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {
@@ -280,6 +286,7 @@ struct AddEditVehicleView: View {
             vehicle.year = year
             vehicle.vin = vin.trimmed
             vehicle.licensePlate = licensePlate.trimmed
+            if vehicle.currentMileage != currentMileage { vehicle.odometerUpdatedDate = .now }
             vehicle.currentMileage = currentMileage
             vehicle.purchaseDate = purchaseDate
             vehicle.photoData = photoData

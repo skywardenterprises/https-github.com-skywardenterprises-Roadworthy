@@ -10,7 +10,7 @@ private enum DetailTab {
 /// replaces eight separate `sheet(isPresented:)` modifiers, matching how the
 /// list screens present their edit forms.
 private enum DetailSheet: String, Identifiable {
-    case editVehicle, maintenance, fuel, expense, reminder, document, spec, trip
+    case editVehicle, maintenance, fuel, expense, reminder, document, spec, trip, odometerCheckIn
     var id: String { rawValue }
 }
 
@@ -51,7 +51,20 @@ struct VehicleDetailView: View {
         }
         .navigationTitle(vehicle.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        // On the Logs tab, Back returns to this vehicle's Overview instead of
+        // leaving for the vehicle list.
+        .navigationBarBackButtonHidden(selectedTab == .logs)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if selectedTab == .logs {
+                    Button {
+                        selectedTab = .overview
+                    } label: {
+                        Label("Back", systemImage: "chevron.backward")
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if selectedTab == .overview {
                     Button("Edit") { activeSheet = .editVehicle }
@@ -78,15 +91,43 @@ struct VehicleDetailView: View {
                 AddEditSpecView(vehicle: vehicle, spec: nil)
             case .trip:
                 AddEditTripView(vehicle: vehicle, trip: nil)
+            case .odometerCheckIn:
+                OdometerCheckInView(
+                    vehicle: vehicle,
+                    onLogMaintenance: { activeSheet = .maintenance },
+                    onLogFuel: { activeSheet = .fuel }
+                )
             }
         }
+        .task { checkOdometerGap() }
+    }
+
+    // MARK: - Odometer check-in
+
+    /// Asks about the gap when nothing has touched the odometer for 30 days.
+    /// A vehicle with no activity yet starts its 30-day clock now instead of
+    /// asking the moment it's added.
+    private func checkOdometerGap() {
+        guard vehicle.isActive, activeSheet == nil else { return }
+        guard let last = vehicle.lastOdometerActivityDate else {
+            vehicle.odometerUpdatedDate = .now
+            return
+        }
+        let calendar = Calendar.current
+        let days = calendar.dateComponents(
+            [.day], from: calendar.startOfDay(for: last), to: calendar.startOfDay(for: .now)
+        ).day ?? 0
+        guard days >= OdometerCheckInView.gapDays else { return }
+        if let snoozed = UserDefaults.standard.object(forKey: SettingKey.odometerSnooze(vehicle.stableID)) as? Date,
+           snoozed > .now { return }
+        activeSheet = .odometerCheckIn
     }
 
     // MARK: - Custom bottom bar
 
     private var customBottomBar: some View {
         HStack {
-            tabBarButton(title: "Overview", systemImage: vehicle.vehicleType.iconName, tab: .overview)
+            tabBarButton(title: "Overview", systemImage: vehicle.vehicleType.iconName, vehicleType: vehicle.vehicleType, tab: .overview)
                 .frame(maxWidth: .infinity)
 
             quickAddMenu
@@ -103,14 +144,18 @@ struct VehicleDetailView: View {
         }
     }
 
-    private func tabBarButton(title: String, systemImage: String, tab: DetailTab) -> some View {
+    private func tabBarButton(title: String, systemImage: String, vehicleType: VehicleType? = nil, tab: DetailTab) -> some View {
         Button {
             selectedTab = tab
         } label: {
             VStack(spacing: 3) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 20))
-                Text(title)
+                if let vehicleType {
+                    VehicleTypeIcon(type: vehicleType, size: 20)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 20))
+                }
+                Text(LocalizedStringKey(title))
                     .font(.caption2)
             }
             .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
@@ -175,6 +220,7 @@ private struct OverviewTab: View {
     @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
 
     @State private var isShowingFullPhoto = false
+    @State private var reminderToEdit: MaintenanceReminder?
 
     @State private var showingInsuranceCardOptions = false
     @State private var showingInsuranceCamera = false
@@ -275,6 +321,9 @@ private struct OverviewTab: View {
                         statSection(title: "REMINDERS") {
                             VStack(spacing: 10) {
                                 ForEach(sortedReminders) { reminder in
+                                    Button {
+                                        reminderToEdit = reminder
+                                    } label: {
                                     HStack(alignment: .top) {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(reminder.title)
@@ -297,6 +346,10 @@ private struct OverviewTab: View {
                                     .padding(12)
                                     .background(Color(.secondarySystemGroupedBackground))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .contentShape(RoundedRectangle(cornerRadius: 10))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityHint("Opens this reminder")
                                 }
                             }
                         }
@@ -304,7 +357,7 @@ private struct OverviewTab: View {
 
                     statSection(title: "VEHICLE INFO") {
                         VStack(spacing: 0) {
-                            infoRow("Type", vehicle.vehicleType.rawValue)
+                            infoRow("Type", L(vehicle.vehicleType.rawValue))
                             Divider().padding(.leading, 12)
                             infoRow("Year/Make/Model", "\(vehicle.year) \(vehicle.make) \(vehicle.model)")
                             Divider().padding(.leading, 12)
@@ -391,8 +444,7 @@ private struct OverviewTab: View {
                     .fill(Color.secondary.opacity(0.2))
                     .frame(height: 200)
                     .overlay(
-                        Image(systemName: vehicle.vehicleType.iconName)
-                            .font(.system(size: 50))
+                        VehicleTypeIcon(type: vehicle.vehicleType, size: 50)
                             .foregroundStyle(.secondary)
                     )
             }
@@ -417,7 +469,7 @@ private struct OverviewTab: View {
 
     private func statSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
@@ -439,7 +491,7 @@ private struct OverviewTab: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
@@ -466,7 +518,7 @@ private struct OverviewTab: View {
                 .foregroundStyle(.tint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -478,7 +530,7 @@ private struct OverviewTab: View {
 
     private func infoRow(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(label)).foregroundStyle(.secondary)
             Spacer()
             Text(value)
         }
@@ -545,9 +597,11 @@ private struct OverviewTab: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(item: $reminderToEdit) { reminder in
+            AddEditReminderView(vehicle: vehicle, reminder: reminder)
+        }
         .sheet(isPresented: $showingInsuranceCamera) {
             CameraPicker(imageData: insuranceCardBinding)
-                .ignoresSafeArea()
         }
         .photosPicker(isPresented: $showingInsurancePhotoPicker, selection: $selectedInsurancePhoto, matching: .images)
         // Same loader as every other photo field: normalized size, the same

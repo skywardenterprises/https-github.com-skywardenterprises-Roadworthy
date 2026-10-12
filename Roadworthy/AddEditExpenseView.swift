@@ -29,10 +29,10 @@ struct AddEditExpenseView: View {
 
     private var validationIssue: String? {
         if (Double(amountText) ?? 0) <= 0 {
-            return "Enter the amount to save."
+            return L("Enter the amount to save.")
         }
         if isLoadingPhoto {
-            return "Waiting for the receipt photo to finish loading…"
+            return L("Waiting for the receipt photo to finish loading…")
         }
         return nil
     }
@@ -53,7 +53,7 @@ struct AddEditExpenseView: View {
                 Section {
                     Picker("Category", selection: $category) {
                         ForEach(ExpenseCategory.allCases) { category in
-                            Text(category.rawValue).tag(category)
+                            Text(LocalizedStringKey(category.rawValue)).tag(category)
                         }
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -77,7 +77,7 @@ struct AddEditExpenseView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Expense" : "Log Expense")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Expense" : "Log Expense"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {

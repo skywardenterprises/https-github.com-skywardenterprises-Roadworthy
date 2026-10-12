@@ -10,6 +10,7 @@ struct ExportView: View {
     @State private var fileToShare: ExportFile?
     @State private var exportError: String?
     @State private var isGenerating = false
+    @State private var includePhotos = true
     /// 0 means "All Years".
     @State private var taxYear = Calendar.current.component(.year, from: .now)
     @AppStorage(SettingKey.businessMileageRate) private var mileageRate: Double = SettingDefault.businessMileageRate
@@ -76,9 +77,10 @@ struct ExportView: View {
             }
 
             Section {
+                Toggle("Include Photos", isOn: $includePhotos)
                 Button {
                     export(baseName: "Vehicle History Report", fileExtension: "pdf") {
-                        ExportGenerator.fullVehicleHistoryPDF(vehicle: vehicle, unit: distanceUnit)
+                        ExportGenerator.fullVehicleHistoryPDF(vehicle: vehicle, unit: distanceUnit, includePhotos: includePhotos)
                     }
                 } label: {
                     Label("Full Vehicle History Report (PDF)", systemImage: "doc.text.image")
@@ -86,7 +88,7 @@ struct ExportView: View {
             } header: {
                 Text("Full Vehicle History")
             } footer: {
-                Text("Includes vehicle info, maintenance, fuel, expenses, reminders, and saved specs in one document — useful for handing over at resale.")
+                Text("Includes vehicle info, maintenance, fuel, expenses, reminders, and saved specs in one document — useful for handing over at resale. Turn off Include Photos for a smaller, text-only report.")
             }
         }
         .disabled(isGenerating)

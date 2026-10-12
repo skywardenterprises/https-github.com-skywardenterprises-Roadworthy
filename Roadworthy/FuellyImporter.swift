@@ -348,8 +348,8 @@ enum FuellyImporter {
                 // imported with a warning instead of skipped.
                 if parsedMileage == nil {
                     warnings.append(rawOdometer.isEmpty
-                        ? "No odometer reading. Imported without mileage."
-                        : "Couldn't read the odometer reading “\(rawOdometer)”. Imported without mileage.")
+                        ? "No odometer reading. Imported without an odometer reading."
+                        : "Couldn't read the odometer reading “\(rawOdometer)”. Imported without an odometer reading.")
                 }
 
                 let rawCost = cell(row, totalCostCol)

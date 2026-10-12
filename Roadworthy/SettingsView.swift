@@ -12,7 +12,7 @@ struct SettingsView: View {
                 Section {
                     Picker("Distance Unit", selection: $distanceUnit) {
                         ForEach(DistanceUnit.allCases) { unit in
-                            Text(unit.displayName).tag(unit)
+                            Text(unit.titleKey).tag(unit)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -23,7 +23,7 @@ struct SettingsView: View {
                 Section {
                     Picker("Language", selection: $appLanguage) {
                         ForEach(AppLanguage.allCases) { language in
-                            Text(language.displayName).tag(language)
+                            Text(LocalizedStringKey(language.displayName)).tag(language)
                         }
                     }
                 } footer: {

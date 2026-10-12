@@ -186,7 +186,7 @@ struct ReportsView: View {
             sectionTitle("FUEL TRENDS")
             Picker("Period", selection: $fuelChartPeriod) {
                 ForEach(ChartPeriod.allCases) { period in
-                    Text(period.rawValue).tag(period)
+                    Text(LocalizedStringKey(period.rawValue)).tag(period)
                 }
             }
             .pickerStyle(.segmented)
@@ -268,7 +268,7 @@ struct ReportsView: View {
             sectionTitle("SPENDING BREAKDOWN")
             Picker("Range", selection: $breakdownRange) {
                 ForEach(BreakdownRange.allCases) { range in
-                    Text(range.rawValue).tag(range)
+                    Text(LocalizedStringKey(range.rawValue)).tag(range)
                 }
             }
             .pickerStyle(.segmented)
@@ -465,7 +465,7 @@ struct ReportsView: View {
             sectionTitle("PERIOD COMPARISON")
             Picker("Metric", selection: $comparisonMetric) {
                 ForEach(ComparisonMetric.allCases) { metric in
-                    Text(metric.rawValue).tag(metric)
+                    Text(LocalizedStringKey(metric.rawValue)).tag(metric)
                 }
             }
             .pickerStyle(.segmented)
@@ -473,7 +473,7 @@ struct ReportsView: View {
 
             Picker("Period", selection: $comparisonPeriod) {
                 ForEach(ComparisonPeriod.allCases) { period in
-                    Text(period.rawValue).tag(period)
+                    Text(LocalizedStringKey(period.rawValue)).tag(period)
                 }
             }
             .pickerStyle(.segmented)
@@ -547,8 +547,8 @@ struct ReportsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("BUSINESS MILEAGE")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                statCard(value: convertFromMiles(businessMilesThisYear, to: distanceUnit).formatted(), label: "\(String(currentTaxYear)) BUSINESS \(distanceUnit.rawValue.uppercased())")
-                statCard(value: estimatedDeduction.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "\(String(currentTaxYear)) DEDUCTION")
+                statCard(value: convertFromMiles(businessMilesThisYear, to: distanceUnit).formatted(), label: L("%@ BUSINESS %@", String(currentTaxYear), distanceUnit.rawValue.uppercased()))
+                statCard(value: estimatedDeduction.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: L("%@ DEDUCTION", String(currentTaxYear)))
                 statCard(value: "$" + String(format: "%.2f", mileageRate), label: "RATE / MI")
             }
             .padding(.horizontal, 16)
@@ -652,7 +652,7 @@ struct ReportsView: View {
     // MARK: - Shared helpers
 
     private func sectionTitle(_ text: String) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.caption)
             .fontWeight(.semibold)
             .foregroundStyle(.secondary)
@@ -667,7 +667,7 @@ struct ReportsView: View {
                 .foregroundStyle(.tint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -678,7 +678,7 @@ struct ReportsView: View {
     }
 
     private func emptyChartPlaceholder(_ text: String) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.caption)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)

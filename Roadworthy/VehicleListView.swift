@@ -32,7 +32,7 @@ struct VehicleListView: View {
                             InactiveVehiclesView()
                         } label: {
                             Label(
-                                "Inactive Vehicles (\(inactiveVehicles.count))",
+                                LocalizedStringKey("Inactive Vehicles (\(inactiveVehicles.count))"),
                                 systemImage: "archivebox"
                             )
                             .foregroundStyle(.secondary)
@@ -68,18 +68,17 @@ struct VehicleListView: View {
                     .accessibilityLabel("Add Vehicle")
                 }
             }
-            .confirmationDialog(
+            .alert(
                 "Delete \(vehiclePendingDeletion?.displayName ?? "this vehicle")?",
                 isPresented: Binding(
                     get: { vehiclePendingDeletion != nil },
                     set: { if !$0 { vehiclePendingDeletion = nil } }
                 ),
-                titleVisibility: .visible,
                 presenting: vehiclePendingDeletion
             ) { vehicle in
+                Button("Cancel", role: .cancel) {}
                 Button("Mark Inactive Instead") { markInactive(vehicle) }
                 Button("Delete Vehicle and All History", role: .destructive) { deleteVehicle(vehicle) }
-                Button("Cancel", role: .cancel) {}
             } message: { vehicle in
                 Text("This permanently deletes \(vehicle.displayName) and all \(historyCount(vehicle)) of its logs, photos, and documents from all your devices. Marking it inactive keeps everything and moves it to Inactive Vehicles.")
             }
@@ -143,7 +142,7 @@ struct VehicleRow: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.secondary.opacity(0.15))
                     .frame(width: 50, height: 50)
-                    .overlay(Image(systemName: vehicle.vehicleType.iconName).foregroundStyle(.secondary))
+                    .overlay(VehicleTypeIcon(type: vehicle.vehicleType, size: 17).foregroundStyle(.secondary))
                     .accessibilityHidden(true)
             }
 

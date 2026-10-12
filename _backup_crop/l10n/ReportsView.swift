@@ -1,0 +1,690 @@
+import SwiftUI
+import Charts
+
+private enum ChartPeriod: String, CaseIterable, Identifiable {
+    case fillUp = "Per Fill-Up"
+    case week = "Week"
+    case month = "Month"
+    case year = "Year"
+    var id: String { rawValue }
+}
+
+private enum BreakdownRange: String, CaseIterable, Identifiable {
+    case allTime = "All Time"
+    case thisYear = "This Year"
+    case thisMonth = "This Month"
+    var id: String { rawValue }
+}
+
+private enum ComparisonPeriod: String, CaseIterable, Identifiable {
+    case month = "Month vs Last Month"
+    case year = "Year vs Last Year"
+    var id: String { rawValue }
+}
+
+private enum ComparisonMetric: String, CaseIterable, Identifiable {
+    case mpg = "MPG"
+    case costPerGallon = "Cost / Gallon"
+    var id: String { rawValue }
+}
+
+struct ReportsView: View {
+    let vehicle: Vehicle
+    @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
+
+    @State private var fuelChartPeriod: ChartPeriod = .fillUp
+    @State private var breakdownRange: BreakdownRange = .allTime
+    @State private var comparisonPeriod: ComparisonPeriod = .month
+    @State private var comparisonMetric: ComparisonMetric = .mpg
+    @AppStorage(SettingKey.businessMileageRate) private var mileageRate: Double = SettingDefault.businessMileageRate
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                quickStatsSection
+                fuelTrendsSection
+                spendingBreakdownSection
+                costPerMileSection
+                comparisonSection
+                businessMileageSection
+                ownershipSection
+            }
+            .padding(.vertical, 16)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Reports")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Raw data points
+
+    private struct MPGPoint {
+        let date: Date
+        let mpg: Double
+    }
+
+    // Excludes implausible intervals so one bad data point can't distort
+    // the MPG charts — see MPGCalculator for details.
+    private var mpgPoints: [MPGPoint] {
+        MPGCalculator.plausibleIntervals(for: vehicle.fuelLogs).map { MPGPoint(date: $0.endLog.date, mpg: $0.mpg) }
+    }
+
+    private var pricePoints: [(date: Date, value: Double)] {
+        vehicle.fuelLogs.sorted { $0.date < $1.date }.map { (date: $0.date, value: $0.pricePerGallon) }
+    }
+
+    // MARK: - Aggregation (Per Fill-Up / Week / Month / Year)
+
+    private struct AggregatedPoint: Identifiable {
+        let id = UUID()
+        let label: String
+        let date: Date
+        let value: Double
+    }
+
+    private func aggregate(_ raw: [(date: Date, value: Double)], by period: ChartPeriod) -> [AggregatedPoint] {
+        if period == .fillUp {
+            return raw
+                .sorted { $0.date < $1.date }
+                .map { AggregatedPoint(label: $0.date.formatted(date: .abbreviated, time: .omitted), date: $0.date, value: $0.value) }
+        }
+
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: raw) { entry -> DateComponents in
+            switch period {
+            case .week:
+                return calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: entry.date)
+            case .month:
+                return calendar.dateComponents([.year, .month], from: entry.date)
+            case .year:
+                return calendar.dateComponents([.year], from: entry.date)
+            case .fillUp:
+                return DateComponents()
+            }
+        }
+
+        let aggregated: [AggregatedPoint] = grouped.map { _, entries in
+            // Use the earliest date in the bucket as the representative x-position —
+            // safer than reconstructing a Date from partial components.
+            let representativeDate = entries.map(\.date).min() ?? .now
+            let average = entries.reduce(0) { $0 + $1.value } / Double(entries.count)
+            let label: String
+            switch period {
+            case .week:
+                label = representativeDate.formatted(.dateTime.month(.abbreviated).day())
+            case .month:
+                label = representativeDate.formatted(.dateTime.month(.abbreviated).year(.twoDigits))
+            case .year:
+                label = representativeDate.formatted(.dateTime.year())
+            case .fillUp:
+                label = ""
+            }
+            return AggregatedPoint(label: label, date: representativeDate, value: average)
+        }
+
+        return aggregated.sorted { $0.date < $1.date }
+    }
+
+    private var mpgAggregated: [AggregatedPoint] {
+        aggregate(mpgPoints.map { (date: $0.date, value: $0.mpg) }, by: fuelChartPeriod)
+    }
+    private var priceAggregated: [AggregatedPoint] {
+        aggregate(pricePoints, by: fuelChartPeriod)
+    }
+
+    // Plain-language summaries read aloud by VoiceOver instead of the chart
+    // itself, since exploring individual points on a line chart isn't a
+    // practical way to get the overall trend.
+    private var mpgAccessibilitySummary: String {
+        guard let first = mpgAggregated.first, let last = mpgAggregated.last else { return "No data" }
+        let firstValue = first.value.formatted(.number.precision(.fractionLength(1)))
+        let lastValue = last.value.formatted(.number.precision(.fractionLength(1)))
+        return "\(mpgAggregated.count) data points, ranging from \(firstValue) to \(lastValue) miles per gallon"
+    }
+    private var priceAccessibilitySummary: String {
+        guard let first = priceAggregated.first, let last = priceAggregated.last else { return "No data" }
+        let firstValue = first.value.formatted(.currency(code: AppCurrency.code))
+        let lastValue = last.value.formatted(.currency(code: AppCurrency.code))
+        return "\(priceAggregated.count) data points, from \(firstValue) to \(lastValue) per gallon"
+    }
+
+    // MARK: - Summary totals
+
+    private var totalFuelCost: Double { vehicle.fuelLogs.reduce(0) { $0 + $1.totalCost } }
+    private var totalMaintenanceCost: Double { vehicle.maintenanceRecords.reduce(0) { $0 + $1.cost } }
+    private var totalExpenseCost: Double { vehicle.expenses.reduce(0) { $0 + $1.amount } }
+    private var totalSpend: Double { totalFuelCost + totalMaintenanceCost + totalExpenseCost }
+
+    private var overallCostPerMile: Double? {
+        let distance = convertFromMiles(vehicle.currentMileage, to: distanceUnit)
+        guard distance > 0 else { return nil }
+        return totalSpend / Double(distance)
+    }
+    private var overallAverageMPG: Double? {
+        guard !mpgPoints.isEmpty else { return nil }
+        return mpgPoints.reduce(0) { $0 + $1.mpg } / Double(mpgPoints.count)
+    }
+
+    // MARK: - Section 1: Summary
+
+    private var quickStatsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("SUMMARY")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                statCard(value: overallAverageMPG.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—", label: "AVG MPG")
+                statCard(value: overallCostPerMile.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(2))) } ?? "—", label: "COST / \(distanceUnit.rawValue.uppercased())")
+                statCard(value: totalSpend.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "TOTAL SPEND")
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    // MARK: - Section 2: Fuel Trends (MPG + Cost/Gallon)
+
+    private var fuelTrendsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("FUEL TRENDS")
+            Picker("Period", selection: $fuelChartPeriod) {
+                ForEach(ChartPeriod.allCases) { period in
+                    Text(period.rawValue).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MPG").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 16)
+                if mpgAggregated.isEmpty {
+                    emptyChartPlaceholder("Log at least two full-tank fill-ups to see MPG trends.")
+                        .padding(.horizontal, 16)
+                } else {
+                    Chart(mpgAggregated) { point in
+                        LineMark(x: .value("Date", point.date), y: .value("MPG", point.value))
+                            .interpolationMethod(.catmullRom)
+                            .foregroundStyle(Color.accentColor)
+                        PointMark(x: .value("Date", point.date), y: .value("MPG", point.value))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .frame(height: 180)
+                    .padding(.horizontal, 16)
+                    .accessibilityLabel("MPG trend chart")
+                    .accessibilityValue(mpgAccessibilitySummary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Cost / Gallon").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 16)
+                if priceAggregated.isEmpty {
+                    emptyChartPlaceholder("Log a few fill-ups to see fuel price trends.")
+                        .padding(.horizontal, 16)
+                } else {
+                    Chart(priceAggregated) { point in
+                        LineMark(x: .value("Date", point.date), y: .value("Price", point.value))
+                            .interpolationMethod(.catmullRom)
+                            .foregroundStyle(.indigo)
+                        PointMark(x: .value("Date", point.date), y: .value("Price", point.value))
+                            .foregroundStyle(.indigo)
+                    }
+                    .frame(height: 180)
+                    .padding(.horizontal, 16)
+                    .accessibilityLabel("Cost per gallon trend chart")
+                    .accessibilityValue(priceAccessibilitySummary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Section 3: Spending Breakdown
+
+    private func breakdownRangeDates() -> ClosedRange<Date> {
+        let now = Date.now
+        let calendar = Calendar.current
+        switch breakdownRange {
+        case .allTime:
+            return Date.distantPast...Date.distantFuture
+        case .thisYear:
+            let start = calendar.date(from: calendar.dateComponents([.year], from: now)) ?? now
+            return start...Date.distantFuture
+        case .thisMonth:
+            let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+            return start...Date.distantFuture
+        }
+    }
+
+    private var breakdownData: [(category: String, amount: Double, color: Color)] {
+        let range = breakdownRangeDates()
+        let fuel = vehicle.fuelLogs.filter { range.contains($0.date) }.reduce(0) { $0 + $1.totalCost }
+        let maintenance = vehicle.maintenanceRecords.filter { range.contains($0.date) }.reduce(0) { $0 + $1.cost }
+        let expenses = vehicle.expenses.filter { range.contains($0.date) }.reduce(0) { $0 + $1.amount }
+        return [
+            ("Fuel", fuel, Color.accentColor),
+            ("Maintenance", maintenance, Color.indigo),
+            ("Expenses", expenses, Color.pink)
+        ]
+    }
+
+    private var spendingBreakdownSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("SPENDING BREAKDOWN")
+            Picker("Range", selection: $breakdownRange) {
+                ForEach(BreakdownRange.allCases) { range in
+                    Text(range.rawValue).tag(range)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            let data = breakdownData.filter { $0.amount > 0 }
+            if data.isEmpty {
+                emptyChartPlaceholder("No spending logged in this range yet.")
+                    .padding(.horizontal, 16)
+            } else {
+                HStack(alignment: .center, spacing: 16) {
+                    Chart(data, id: \.category) { item in
+                        SectorMark(angle: .value("Amount", item.amount), innerRadius: .ratio(0.6), angularInset: 1.5)
+                            .foregroundStyle(item.color)
+                    }
+                    .frame(width: 140, height: 140)
+                    .accessibilityHidden(true) // the legend to the right already conveys the same data as text
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(data, id: \.category) { item in
+                            HStack {
+                                Circle().fill(item.color).frame(width: 8, height: 8)
+                                    .accessibilityHidden(true)
+                                Text(item.category).font(.caption)
+                                Spacer()
+                                Text(item.amount.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    // MARK: - Section 4: Cost Per Mile (monthly)
+
+    private struct MileageSnapshot {
+        let date: Date
+        let mileage: Int
+    }
+
+    private var mileageSnapshots: [MileageSnapshot] {
+        let fromFuel = vehicle.fuelLogs.map { MileageSnapshot(date: $0.date, mileage: $0.mileage) }
+        let fromMaintenance = vehicle.maintenanceRecords.map { MileageSnapshot(date: $0.date, mileage: $0.mileage) }
+        return (fromFuel + fromMaintenance).sorted { $0.date < $1.date }
+    }
+
+    /// Spending from `start` up to, but not including, `end`. Half-open, so
+    /// consecutive months share a boundary without gaps or overlap.
+    /// (Previously the range ended at midnight at the start of the month's
+    /// last day, which left out everything logged later that day.)
+    private func totalSpend(from start: Date, before end: Date) -> Double {
+        let range = start..<end
+        let fuel = vehicle.fuelLogs.filter { range.contains($0.date) }.reduce(0) { $0 + $1.totalCost }
+        let maintenance = vehicle.maintenanceRecords.filter { range.contains($0.date) }.reduce(0) { $0 + $1.cost }
+        let expenses = vehicle.expenses.filter { range.contains($0.date) }.reduce(0) { $0 + $1.amount }
+        return fuel + maintenance + expenses
+    }
+
+    private struct MonthCostPerMile: Identifiable {
+        let id = UUID()
+        let monthStart: Date
+        let costPerMile: Double
+    }
+
+    private var monthlyCostPerMile: [MonthCostPerMile] {
+        let allDates = vehicle.fuelLogs.map { $0.date } + vehicle.maintenanceRecords.map { $0.date } + vehicle.expenses.map { $0.date }
+        guard let minDate = allDates.min(), let maxDate = allDates.max() else { return [] }
+
+        let calendar = Calendar.current
+        var months: [Date] = []
+        var cursor = calendar.date(from: calendar.dateComponents([.year, .month], from: minDate)) ?? minDate
+        let end = calendar.date(from: calendar.dateComponents([.year, .month], from: maxDate)) ?? maxDate
+        while cursor <= end {
+            months.append(cursor)
+            guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+
+        // Sorted once here rather than on every lookup.
+        let snapshots = mileageSnapshots
+        func mileage(before date: Date) -> Int? {
+            snapshots.last { $0.date < date }?.mileage
+        }
+
+        var results: [MonthCostPerMile] = []
+        for monthStart in months {
+            guard let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart) else { continue }
+            let spend = totalSpend(from: monthStart, before: nextMonthStart)
+            guard let endMileage = mileage(before: nextMonthStart),
+                  let startMileage = mileage(before: monthStart),
+                  endMileage > startMileage else { continue }
+            let miles = endMileage - startMileage
+            let distance = convertFromMiles(miles, to: distanceUnit)
+            guard distance > 0 else { continue }
+            results.append(MonthCostPerMile(monthStart: monthStart, costPerMile: spend / Double(distance)))
+        }
+        return results
+    }
+
+    private var costPerMileSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("COST PER \(distanceUnit.rawValue.uppercased()) (MONTHLY)")
+            // Computed once per render instead of once per use.
+            let monthlyPoints = monthlyCostPerMile
+            if monthlyPoints.isEmpty {
+                emptyChartPlaceholder("Log fill-ups or maintenance across at least two different months to see this trend.")
+                    .padding(.horizontal, 16)
+            } else {
+                Chart(monthlyPoints) { point in
+                    BarMark(
+                        x: .value("Month", point.monthStart, unit: .month),
+                        y: .value("Cost", point.costPerMile)
+                    )
+                    .foregroundStyle(Color.accentColor)
+                }
+                .frame(height: 180)
+                .padding(.horizontal, 16)
+                .accessibilityLabel("Cost per \(distanceUnit.displayName.lowercased()) by month chart")
+                .accessibilityValue("\(monthlyPoints.count) months of data")
+            }
+        }
+    }
+
+    // MARK: - Section 5: Period Comparison
+
+    private struct ComparisonSeries: Identifiable {
+        let id = UUID()
+        let label: String
+        let index: Int
+        let value: Double
+    }
+
+    private var comparisonData: [ComparisonSeries] {
+        let calendar = Calendar.current
+        let now = Date.now
+
+        let rawPoints: [(date: Date, value: Double)] = comparisonMetric == .mpg
+            ? mpgPoints.map { (date: $0.date, value: $0.mpg) }
+            : pricePoints
+
+        let rawSeries: [ComparisonSeries]
+        switch comparisonPeriod {
+        case .month:
+            let currentStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+            let previousStart = calendar.date(byAdding: .month, value: -1, to: currentStart) ?? currentStart
+            let previousEnd = calendar.date(byAdding: .day, value: -1, to: currentStart) ?? currentStart
+
+            var series: [ComparisonSeries] = []
+            for point in rawPoints where point.date >= currentStart {
+                let day = calendar.component(.day, from: point.date)
+                series.append(ComparisonSeries(label: "This Month", index: day, value: point.value))
+            }
+            for point in rawPoints where point.date >= previousStart && point.date <= previousEnd {
+                let day = calendar.component(.day, from: point.date)
+                series.append(ComparisonSeries(label: "Last Month", index: day, value: point.value))
+            }
+            rawSeries = series
+
+        case .year:
+            let currentYear = calendar.component(.year, from: now)
+            var series: [ComparisonSeries] = []
+            for point in rawPoints {
+                let year = calendar.component(.year, from: point.date)
+                let month = calendar.component(.month, from: point.date)
+                if year == currentYear {
+                    series.append(ComparisonSeries(label: "This Year", index: month, value: point.value))
+                } else if year == currentYear - 1 {
+                    series.append(ComparisonSeries(label: "Last Year", index: month, value: point.value))
+                }
+            }
+            rawSeries = series
+        }
+
+        // Average together any points that land on the same day (Month view)
+        // or month (Year view) within the same series — otherwise the line
+        // has to zigzag between multiple points stacked at the same x
+        // position instead of drawing one smooth point per period.
+        let grouped = Dictionary(grouping: rawSeries) { "\($0.label)-\($0.index)" }
+        return grouped.values.compactMap { group in
+            guard let first = group.first else { return nil }
+            let average = group.reduce(0) { $0 + $1.value } / Double(group.count)
+            return ComparisonSeries(label: first.label, index: first.index, value: average)
+        }
+        .sorted { $0.index < $1.index }
+    }
+
+    private var comparisonSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("PERIOD COMPARISON")
+            Picker("Metric", selection: $comparisonMetric) {
+                ForEach(ComparisonMetric.allCases) { metric in
+                    Text(metric.rawValue).tag(metric)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            Picker("Period", selection: $comparisonPeriod) {
+                ForEach(ComparisonPeriod.allCases) { period in
+                    Text(period.rawValue).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            if comparisonData.isEmpty {
+                emptyChartPlaceholder("Not enough data yet to compare these periods.")
+                    .padding(.horizontal, 16)
+            } else {
+                Chart(comparisonData) { point in
+                    LineMark(
+                        x: .value(comparisonPeriod == .month ? "Day" : "Month", point.index),
+                        y: .value(comparisonMetric.rawValue, point.value)
+                    )
+                    .foregroundStyle(by: .value("Period", point.label))
+                    .interpolationMethod(.catmullRom)
+                }
+                .chartForegroundStyleScale([
+                    "This Month": Color.accentColor,
+                    "This Year": Color.accentColor,
+                    "Last Month": Color.gray,
+                    "Last Year": Color.gray
+                ])
+                .frame(height: 200)
+                .padding(.horizontal, 16)
+                .accessibilityLabel("\(comparisonMetric.rawValue) comparison chart, \(comparisonPeriod.rawValue)")
+            }
+        }
+    }
+
+    // MARK: - Section 6: Business Mileage
+
+    private struct MonthlyBusinessMiles: Identifiable {
+        let id = UUID()
+        let monthStart: Date
+        let miles: Int
+    }
+
+    private var totalBusinessMiles: Int {
+        vehicle.trips.filter { $0.purpose == .business }.reduce(0) { $0 + $1.milesDriven }
+    }
+    /// The deduction is per tax year, since the IRS rate changes by year.
+    /// Matches the Business Mileage Log PDF's single-year estimate.
+    private var currentTaxYear: Int { Calendar.current.component(.year, from: .now) }
+    private var businessMilesThisYear: Int {
+        vehicle.trips
+            .filter { $0.purpose == .business && Calendar.current.component(.year, from: $0.date) == currentTaxYear }
+            .reduce(0) { $0 + $1.milesDriven }
+    }
+    private var estimatedDeduction: Double {
+        Double(businessMilesThisYear) * mileageRate
+    }
+
+    private var monthlyBusinessMiles: [MonthlyBusinessMiles] {
+        let businessTrips = vehicle.trips.filter { $0.purpose == .business }
+        guard !businessTrips.isEmpty else { return [] }
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: businessTrips) { trip in
+            calendar.dateComponents([.year, .month], from: trip.date)
+        }
+        return grouped.compactMap { _, trips -> MonthlyBusinessMiles? in
+            guard let representativeDate = trips.map(\.date).min() else { return nil }
+            let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: representativeDate)) ?? representativeDate
+            let miles = trips.reduce(0) { $0 + $1.milesDriven }
+            return MonthlyBusinessMiles(monthStart: monthStart, miles: miles)
+        }
+        .sorted { $0.monthStart < $1.monthStart }
+    }
+
+    private var businessMileageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("BUSINESS MILEAGE")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                statCard(value: convertFromMiles(businessMilesThisYear, to: distanceUnit).formatted(), label: "\(String(currentTaxYear)) BUSINESS \(distanceUnit.rawValue.uppercased())")
+                statCard(value: estimatedDeduction.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "\(String(currentTaxYear)) DEDUCTION")
+                statCard(value: "$" + String(format: "%.2f", mileageRate), label: "RATE / MI")
+            }
+            .padding(.horizontal, 16)
+
+            if monthlyBusinessMiles.isEmpty {
+                emptyChartPlaceholder("Log a business trip to see your mileage trend here.")
+                    .padding(.horizontal, 16)
+            } else {
+                Chart(monthlyBusinessMiles) { point in
+                    BarMark(
+                        x: .value("Month", point.monthStart, unit: .month),
+                        y: .value(distanceUnit.displayName, convertFromMiles(point.miles, to: distanceUnit))
+                    )
+                    .foregroundStyle(Color.accentColor)
+                }
+                .frame(height: 180)
+                .padding(.horizontal, 16)
+                .accessibilityLabel("Business \(distanceUnit.displayName.lowercased()) by month chart")
+                .accessibilityValue("\(formattedDistance(totalBusinessMiles, unit: distanceUnit)) total business distance")
+            }
+        }
+    }
+
+    // MARK: - Section 7: True Cost of Ownership
+
+    private var monthsOwned: Int {
+        let months = Calendar.current.dateComponents([.month], from: vehicle.purchaseDate, to: .now).month ?? 0
+        return max(1, months)
+    }
+
+    /// Depreciation (purchase price − current value) plus everything spent
+    /// keeping the vehicle running. Nil until a current value is entered,
+    /// since depreciation can't be calculated without one.
+    private var netCostOfOwnership: Double? {
+        guard let currentValue = vehicle.estimatedCurrentValue else { return nil }
+        let depreciation = vehicle.purchasePrice - currentValue
+        return depreciation + totalSpend
+    }
+    private var costPerMonthOwned: Double? {
+        guard let netCost = netCostOfOwnership else { return nil }
+        return netCost / Double(monthsOwned)
+    }
+    private var costPerMileOwned: Double? {
+        let distance = convertFromMiles(vehicle.currentMileage, to: distanceUnit)
+        guard let netCost = netCostOfOwnership, distance > 0 else { return nil }
+        return netCost / Double(distance)
+    }
+
+    private var ownershipSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("TRUE COST OF OWNERSHIP")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                statCard(
+                    value: vehicle.purchasePrice > 0 ? vehicle.purchasePrice.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))) : "—",
+                    label: "PURCHASE PRICE"
+                )
+                statCard(
+                    value: vehicle.estimatedCurrentValue.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))) } ?? "—",
+                    label: "CURRENT VALUE"
+                )
+                statCard(
+                    value: totalSpend.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))),
+                    label: "TOTAL SPEND"
+                )
+            }
+            .padding(.horizontal, 16)
+
+            if let netCost = netCostOfOwnership {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    statCard(value: netCost.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))), label: "NET COST")
+                    statCard(
+                        value: costPerMonthOwned.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(0))) } ?? "—",
+                        label: "COST / MONTH"
+                    )
+                    statCard(
+                        value: costPerMileOwned.map { $0.formatted(.currency(code: AppCurrency.code).precision(.fractionLength(2))) } ?? "—",
+                        label: "COST / \(distanceUnit.rawValue.uppercased()) OWNED"
+                    )
+                }
+                .padding(.horizontal, 16)
+
+                if let updatedDate = vehicle.estimatedValueUpdatedDate {
+                    Text("Value last updated \(updatedDate.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                }
+            } else {
+                Text("Add an Estimated Current Value in Edit Vehicle to see your full cost of ownership, including depreciation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    // MARK: - Shared helpers
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+    }
+
+    private func statCard(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundStyle(.tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func emptyChartPlaceholder(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding()
+            .frame(maxWidth: .infinity, minHeight: 100)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}

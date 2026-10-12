@@ -58,15 +58,15 @@ struct MPGInterval: Identifiable {
         guard let issue else { return nil }
         switch issue {
         case .noDistance:
-            return "The odometer didn't advance between these two full fill-ups. This is likely a duplicate entry or a mileage typo."
+            return L("The odometer didn't advance between these two full fill-ups. This is likely a duplicate entry or an odometer typo.")
         case .missingFuelAmount:
-            return "A fill-up in this stretch has no gallons recorded."
+            return L("A fill-up in this stretch has no gallons recorded.")
         case .missingOdometerInStretch:
-            return "A fill-up in this stretch has no odometer reading, so its gallons couldn't be counted."
+            return L("A fill-up in this stretch has no odometer reading, so its gallons couldn't be counted.")
         case .outsideRangeForVehicleType(let range):
-            return "Outside the realistic range for this vehicle type (\(Int(range.lowerBound))–\(Int(range.upperBound)) MPG). Check for a mistyped odometer, a missed fill-up, or a full/partial mix-up."
+            return L("Outside the realistic range for this vehicle type (%lld–%lld MPG). Check for a mistyped odometer, a missed fill-up, or a full/partial mix-up.", Int(range.lowerBound), Int(range.upperBound))
         case .unusualForThisVehicle(let median):
-            return "Far from this vehicle's typical \(median.formatted(.number.precision(.fractionLength(1)))) MPG."
+            return L("Far from this vehicle's typical %@ MPG.", median.formatted(.number.precision(.fractionLength(1))))
         }
     }
 }

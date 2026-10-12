@@ -42,12 +42,14 @@ enum ReminderNotificationManager {
               fireDate > .now else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Maintenance Reminder"
+        content.title = L("Maintenance Reminder")
         content.sound = .default
         if reminder.notifyDaysBefore > 0 {
-            content.body = "\(reminder.title) for \(vehicleName) is due in \(reminder.notifyDaysBefore) day\(reminder.notifyDaysBefore == 1 ? "" : "s")."
+            content.body = reminder.notifyDaysBefore == 1
+                ? L("%@ for %@ is due in 1 day.", reminder.title, vehicleName)
+                : L("%@ for %@ is due in %lld days.", reminder.title, vehicleName, reminder.notifyDaysBefore)
         } else {
-            content.body = "\(reminder.title) for \(vehicleName) is due today."
+            content.body = L("%@ for %@ is due today.", reminder.title, vehicleName)
         }
 
         let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)

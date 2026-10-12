@@ -5,8 +5,8 @@ import SwiftData
 
 enum VehicleType: String, CaseIterable, Codable, Identifiable {
     case car = "Car"
-    case motorcycle = "Motorcycle"
     case truck = "Truck"
+    case motorcycle = "Motorcycle"
     case rv = "RV"
     case other = "Other"
 
@@ -16,11 +16,26 @@ enum VehicleType: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .car: return "car.fill"
         case .motorcycle: return "motorcycle.fill"
-        case .truck: return "box.truck.fill"
+        case .truck: return "box.truck.fill"  // not shown; Truck uses the PickupTruck asset
         case .rv: return "bus.fill"
-        case .other: return "car.fill"
+        case .other: return "box.truck.fill"
         }
     }
+
+    /// Asset-catalog image used instead of an SF Symbol. SF Symbols has no
+    /// pickup truck, and its truck symbol is a box truck (now used by Other).
+    var customIconAsset: String? { self == .truck ? "PickupTruck" : nil }
+}
+
+
+// MARK: - Engine size
+
+enum EngineSizeUnit: String, CaseIterable, Identifiable {
+    case liters = "L"
+    case cubicCentimeters = "cc"
+    case cubicInches = "ci"
+
+    var id: String { rawValue }
 }
 
 // MARK: - Vehicle
@@ -43,6 +58,28 @@ final class Vehicle {
     var vin: String = ""
     var licensePlate: String = ""
     var currentMileage: Int = 0
+    /// When the odometer was last confirmed by hand (Odometer Check-In or
+    /// Edit Vehicle). Optional so existing vehicles load without it.
+    var odometerUpdatedDate: Date?
+    /// Optional engine displacement, in whichever unit the person chose.
+    var engineSize: Double?
+    var engineSizeUnitRaw: String = EngineSizeUnit.liters.rawValue
+    var engineSizeUnit: EngineSizeUnit {
+        get { EngineSizeUnit(rawValue: engineSizeUnitRaw) ?? .liters }
+        set { engineSizeUnitRaw = newValue.rawValue }
+    }
+    /// For example "5.7 L", or nil when no engine size was entered.
+    var engineSizeDescription: String? {
+        guard let engineSize, engineSize > 0 else { return nil }
+        return "\(engineSize.formatted(.number.precision(.fractionLength(0...2)).grouping(.never))) \(engineSizeUnit.rawValue)"
+    }
+    /// Optional details, usually filled in by the VIN lookup.
+    var trim: String = ""
+    var bodyStyle: String = ""
+    var cylinders: Int?
+    var fuelType: String = ""
+    var driveType: String = ""
+    var transmission: String = ""
     var purchaseDate: Date = Date.now
     /// Stored as a separate file (external storage), so reading this
     /// record doesn't also read the photo into memory. Only loaded when the
@@ -128,6 +165,17 @@ final class Vehicle {
 
     var displayName: String {
         nickname.isEmpty ? "\(year) \(make) \(model)" : nickname
+    }
+
+    /// The most recent day anything touched the odometer: a fuel log, a
+    /// service with a reading, a trip, or a manual update. Nil if none yet.
+    var lastOdometerActivityDate: Date? {
+        var dates: [Date] = []
+        dates += fuelLogs.filter { $0.mileage > 0 }.map(\.date)
+        dates += maintenanceRecords.filter { $0.mileage > 0 }.map(\.date)
+        dates += trips.map(\.date)
+        if let odometerUpdatedDate { dates.append(odometerUpdatedDate) }
+        return dates.max()
     }
 
     // Non-optional convenience accessors — every other file in the app
@@ -234,9 +282,9 @@ func isBeforeManufactureYear(_ date: Date, vehicleYear: Int) -> Bool {
 func buildMileageConflictMessage(newMileage: Int, newDate: Date, conflict: (date: Date, mileage: Int)) -> String {
     let conflictDate = conflict.date.formatted(date: .abbreviated, time: .omitted)
     if conflict.date <= newDate {
-        return "This entry's mileage (\(newMileage.formatted()) mi) is lower than a previous log from \(conflictDate) at \(conflict.mileage.formatted()) mi. Please correct the mileage or the date before saving."
+        return L("This entry's odometer reading (%@ mi) is lower than a previous log from %@ at %@ mi. Please correct the odometer reading or the date before saving.", newMileage.formatted(), conflictDate, conflict.mileage.formatted())
     } else {
-        return "This entry's mileage (\(newMileage.formatted()) mi) is higher than a later log from \(conflictDate) at \(conflict.mileage.formatted()) mi. Please correct the mileage or the date before saving."
+        return L("This entry's odometer reading (%@ mi) is higher than a later log from %@ at %@ mi. Please correct the odometer reading or the date before saving.", newMileage.formatted(), conflictDate, conflict.mileage.formatted())
     }
 }
 
@@ -340,11 +388,11 @@ enum MaintenanceType: String, CaseIterable, Codable, Identifiable {
     /// more clearly than "Other" as an option someone taps to type their own.
     /// The underlying stored value stays "Other" so existing data is unaffected.
     var displayName: String {
-        self == .other ? "Custom" : rawValue
+        self == .other ? L("Custom") : L(rawValue)
     }
 
     /// Wording for the custom entry in the Type menus.
-    var menuName: String { self == .other ? "* Add Custom Task *" : displayName }
+    var menuName: String { self == .other ? L("* Add Custom Task *") : displayName }
 
     /// Order used by the Type menus: "Add Custom Task" first, then everything
     /// else alphabetical by display name.
@@ -797,7 +845,7 @@ enum SpecCategory: String, CaseIterable, Codable, Identifiable {
     /// stays "Part" so any specs already saved (including synced ones)
     /// aren't affected by the rename.
     var displayName: String {
-        self == .part ? "Part Info" : rawValue
+        self == .part ? L("Part Info") : L(rawValue)
     }
 }
 

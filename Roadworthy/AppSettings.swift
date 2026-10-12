@@ -12,6 +12,10 @@ nonisolated enum SettingKey {
     static let businessMileageRate = "businessMileageRate"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let hasSeenImportPrompt = "hasSeenImportPrompt"
+    /// Per-vehicle "remind me later" date for the odometer check-in.
+    static func odometerSnooze(_ vehicleID: UUID?) -> String {
+        "odometerCheckInSnooze.\(vehicleID?.uuidString ?? "none")"
+    }
 }
 
 /// Default values that more than one screen depends on.

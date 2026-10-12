@@ -14,7 +14,7 @@ struct ReminderStatusBadge: View {
     }
 
     var body: some View {
-        Text(status.rawValue)
+        Text(LocalizedStringKey(status.rawValue))
             .font(.caption)
             .fontWeight(.semibold)
             .foregroundStyle(.white)

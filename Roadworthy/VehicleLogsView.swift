@@ -22,7 +22,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "wrench.and.screwdriver.fill",
                     title: "Maintenance",
-                    subtitle: "\(vehicle.maintenanceRecords.count) logged"
+                    subtitle: L("%lld logged", vehicle.maintenanceRecords.count)
                 )
             }
 
@@ -32,7 +32,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "fuelpump.fill",
                     title: "Fuel",
-                    subtitle: "\(vehicle.fuelLogs.count) logged"
+                    subtitle: L("%lld logged", vehicle.fuelLogs.count)
                 )
             }
 
@@ -42,7 +42,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "dollarsign.circle.fill",
                     title: "Expenses",
-                    subtitle: "\(vehicle.expenses.count) logged"
+                    subtitle: L("%lld logged", vehicle.expenses.count)
                 )
             }
 
@@ -52,7 +52,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "map.fill",
                     title: "Trips",
-                    subtitle: "\(vehicle.trips.count) logged"
+                    subtitle: L("%lld logged", vehicle.trips.count)
                 )
             }
 
@@ -62,7 +62,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "bell.fill",
                     title: "Reminders",
-                    subtitle: "\(vehicle.reminders.count) set"
+                    subtitle: L("%lld set", vehicle.reminders.count)
                 )
             }
 
@@ -72,7 +72,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "doc.fill",
                     title: "Documents",
-                    subtitle: "\(vehicle.documents.count) saved"
+                    subtitle: L("%lld saved", vehicle.documents.count)
                 )
             }
 
@@ -82,7 +82,7 @@ struct VehicleLogsView: View {
                 logRow(
                     icon: "list.clipboard.fill",
                     title: "Vehicle Specs",
-                    subtitle: "\(vehicle.specs.count) saved"
+                    subtitle: L("%lld saved", vehicle.specs.count)
                 )
             }
 
@@ -108,7 +108,7 @@ struct VehicleLogsView: View {
                 .frame(width: 28)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
+                Text(LocalizedStringKey(title)).font(.headline)
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
         }

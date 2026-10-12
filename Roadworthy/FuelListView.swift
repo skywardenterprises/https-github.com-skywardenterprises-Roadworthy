@@ -137,7 +137,7 @@ struct FuelListView: View {
                 Text("\(log.gallons.formatted(.number.precision(.fractionLength(1)))) gal")
                     .font(.headline)
                 if log.fuelGrade != .regular {
-                    Text(log.fuelGrade.rawValue)
+                    Text(LocalizedStringKey(log.fuelGrade.rawValue))
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)

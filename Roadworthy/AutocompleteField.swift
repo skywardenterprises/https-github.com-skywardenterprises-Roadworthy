@@ -32,7 +32,7 @@ struct AutocompleteField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField(title, text: $text)
+            TextField(LocalizedStringKey(title), text: $text)
                 .focused($isFocused)
 
             if isFocused && !suggestions.isEmpty {

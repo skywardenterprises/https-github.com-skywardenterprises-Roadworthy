@@ -28,7 +28,7 @@ struct ExpenseListView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Text(expense.category.rawValue).font(.headline)
+                                    Text(LocalizedStringKey(expense.category.rawValue)).font(.headline)
                                     if expense.receiptPhotoData != nil {
                                         Image(systemName: "paperclip")
                                             .font(.caption2)

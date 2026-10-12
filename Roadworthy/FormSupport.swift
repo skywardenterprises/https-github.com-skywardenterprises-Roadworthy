@@ -35,14 +35,14 @@ enum EntryValidation {
         let shown = date.formatted(date: .abbreviated, time: .omitted)
         if isFutureDate(date) {
             return EntryProblem(
-                title: "Date Is In the Future",
-                message: "This entry is dated \(shown), which hasn't happened yet. Choose today's date or an earlier one."
+                title: L("Date Is In the Future"),
+                message: L("This entry is dated %@, which hasn't happened yet. Choose today's date or an earlier one.", shown)
             )
         }
         if isBeforeVehicleExisted(date, vehicleYear: vehicle.year) {
             return EntryProblem(
-                title: "Date Is Before This Vehicle Existed",
-                message: "This entry is dated \(shown), but a \(vehicle.year) model went on sale in \(vehicle.year - 1) at the earliest. Check the date, or the vehicle's year in Edit Vehicle."
+                title: L("Date Is Before This Vehicle Existed"),
+                message: L("This entry is dated %@, but a %lld model went on sale in %lld at the earliest. Check the date, or the vehicle's year in Edit Vehicle.", shown, vehicle.year, vehicle.year - 1)
             )
         }
         return nil
@@ -66,7 +66,7 @@ enum EntryValidation {
               )
         else { return nil }
         return EntryProblem(
-            title: "Mileage Doesn't Add Up",
+            title: L("Odometer Doesn't Add Up"),
             message: buildMileageConflictMessage(newMileage: mileage, newDate: date, conflict: conflict)
         )
     }
@@ -85,16 +85,16 @@ enum EntryValidation {
             .filter({ calendar.startOfDay(for: $0.date) < tripDay && $0.mileage > start })
             .max(by: { $0.mileage < $1.mileage }) {
             return EntryProblem(
-                title: "Mileage Doesn't Add Up",
-                message: "The start odometer is lower than a reading from \(earlier.date.formatted(date: .abbreviated, time: .omitted)) (\(formattedDistance(earlier.mileage, unit: unit))). Check the start reading or the trip date."
+                title: L("Odometer Doesn't Add Up"),
+                message: L("The start odometer is lower than a reading from %@ (%@). Check the start reading or the trip date.", earlier.date.formatted(date: .abbreviated, time: .omitted), formattedDistance(earlier.mileage, unit: unit))
             )
         }
         if let later = valid
             .filter({ calendar.startOfDay(for: $0.date) > tripDay && $0.mileage < end })
             .min(by: { $0.mileage < $1.mileage }) {
             return EntryProblem(
-                title: "Mileage Doesn't Add Up",
-                message: "The end odometer is higher than a later reading from \(later.date.formatted(date: .abbreviated, time: .omitted)) (\(formattedDistance(later.mileage, unit: unit))). Check the end reading or the trip date."
+                title: L("Odometer Doesn't Add Up"),
+                message: L("The end odometer is higher than a later reading from %@ (%@). Check the end reading or the trip date.", later.date.formatted(date: .abbreviated, time: .omitted), formattedDistance(later.mileage, unit: unit))
             )
         }
         return nil
@@ -132,9 +132,9 @@ struct DigitsField: View {
 
     var body: some View {
         HStack {
-            Text(label)
+            Text(LocalizedStringKey(label))
             Spacer()
-            TextField(placeholder, text: $text)
+            TextField(LocalizedStringKey(placeholder), text: $text)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .onChange(of: text) { _, newValue in
@@ -189,17 +189,19 @@ extension View {
     func discardChangesGuard(hasChanges: Bool, isConfirming: Binding<Bool>, onDiscard: @escaping () -> Void) -> some View {
         self
             .interactiveDismissDisabled(hasChanges)
-            .confirmationDialog("Discard your changes?", isPresented: isConfirming, titleVisibility: .visible) {
-                Button("Discard Changes", role: .destructive, action: onDiscard)
+            // An alert, not a confirmation dialog: on iPad a dialog is a popover
+            // that hides its cancel button, so "Keep Editing" never showed.
+            .alert("Discard your changes?", isPresented: isConfirming) {
                 Button("Keep Editing", role: .cancel) {}
+                Button("Discard Changes", role: .destructive, action: onDiscard)
             }
     }
 
     /// Confirmation before a single delete from inside an edit form.
     func deleteConfirmation(_ title: String, isPresented: Binding<Bool>, onDelete: @escaping () -> Void) -> some View {
-        confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible) {
-            Button("Delete", role: .destructive, action: onDelete)
+        alert(title, isPresented: isPresented) {
             Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive, action: onDelete)
         } message: {
             Text("This can't be undone.")
         }
@@ -210,20 +212,22 @@ extension View {
     /// can't shift which rows get deleted.
     func confirmDeletion<Item>(of pending: Binding<[Item]>, noun: String, perform: @escaping ([Item]) -> Void) -> some View {
         let count = pending.wrappedValue.count
-        return confirmationDialog(
-            count == 1 ? "Delete this \(noun)?" : "Delete \(count) \(noun)s?",
+        let title = count == 1
+            ? AppLocalization.string("Delete this \(noun)?")
+            : L("Delete %lld " + noun + "s?", count)
+        return alert(
+            Text(verbatim: title),
             isPresented: Binding(
                 get: { !pending.wrappedValue.isEmpty },
                 set: { if !$0 { pending.wrappedValue = [] } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
+            Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 let items = pending.wrappedValue
                 pending.wrappedValue = []
                 perform(items)
             }
-            Button("Cancel", role: .cancel) {}
         } message: {
             Text("This can't be undone.")
         }
@@ -405,7 +409,7 @@ extension ModelContext {
         } catch {
             rollback()
             let nsError = error as NSError
-            return "Your change couldn't be saved (code \(nsError.code)). Please try again. If this keeps happening, contact \(SupportConfig.email)."
+            return L("Your change couldn't be saved (code %lld). Please try again. If this keeps happening, contact %@.", nsError.code, SupportConfig.email)
         }
     }
 }

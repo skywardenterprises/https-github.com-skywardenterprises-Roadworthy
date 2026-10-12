@@ -13,21 +13,33 @@ struct TripListView: View {
     // Stored as a simple device setting so it's easy to update without an app update.
     @AppStorage(SettingKey.businessMileageRate) private var mileageRate: Double = SettingDefault.businessMileageRate
     @State private var showingRateEditor = false
+    /// The year shown in the summary and trip list. 0 means "All".
+    @State private var selectedYear = Calendar.current.component(.year, from: .now)
+
+    private func year(of trip: TripLog) -> Int { Calendar.current.component(.year, from: trip.date) }
+
+    /// Every year that has a trip, plus the current year, newest first.
+    private var yearOptions: [Int] {
+        Array(Set(vehicle.trips.map { year(of: $0) } + [currentTaxYear])).sorted(by: >)
+    }
+    private var visibleTrips: [TripLog] {
+        selectedYear == 0 ? sortedTrips : sortedTrips.filter { year(of: $0) == selectedYear }
+    }
+    private var yearLabel: String { selectedYear == 0 ? L("All Years") : String(selectedYear) }
 
     private var sortedTrips: [TripLog] {
         vehicle.trips.sorted { $0.date > $1.date }
     }
-    /// Business distance and deduction for the current tax year, matching
-    /// Reports and the Business Mileage Log PDF. The IRS rate is per year,
-    /// so a total across every year can't be multiplied by one rate.
+    /// The IRS rate is per year, so a total across every year can't be
+    /// multiplied by one rate. "All" shows distance only, no deduction.
     private var currentTaxYear: Int { Calendar.current.component(.year, from: .now) }
-    private var businessMilesThisYear: Int {
-        sortedTrips
-            .filter { $0.purpose == .business && Calendar.current.component(.year, from: $0.date) == currentTaxYear }
+    private var businessMilesShown: Int {
+        visibleTrips
+            .filter { $0.purpose == .business }
             .reduce(0) { $0 + $1.milesDriven }
     }
     private var estimatedDeduction: Double {
-        Double(businessMilesThisYear) * mileageRate
+        Double(businessMilesShown) * mileageRate
     }
 
     var body: some View {
@@ -41,17 +53,25 @@ struct TripListView: View {
             } else {
                 List {
                     Section {
-                        HStack {
-                            Text("\(String(currentTaxYear)) Business \(distanceUnit.displayName)")
-                            Spacer()
-                            Text(formattedDistance(businessMilesThisYear, unit: distanceUnit))
-                                .foregroundStyle(.secondary)
+                        Picker("Year", selection: $selectedYear) {
+                            Text("All").tag(0)
+                            ForEach(yearOptions, id: \.self) { year in
+                                Text(String(year)).tag(year)
+                            }
                         }
                         HStack {
-                            Text("\(String(currentTaxYear)) Estimated Deduction")
+                            Text("\(yearLabel) Business \(distanceUnit.displayName)")
                             Spacer()
-                            Text(estimatedDeduction, format: .currency(code: AppCurrency.code))
+                            Text(formattedDistance(businessMilesShown, unit: distanceUnit))
                                 .foregroundStyle(.secondary)
+                        }
+                        if selectedYear != 0 {
+                            HStack {
+                                Text("\(yearLabel) Estimated Deduction")
+                                Spacer()
+                                Text(estimatedDeduction, format: .currency(code: AppCurrency.code))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Button {
                             showingRateEditor = true
@@ -65,8 +85,12 @@ struct TripListView: View {
                         .foregroundStyle(.primary)
                     }
 
-                    Section("Trips") {
-                        ForEach(sortedTrips) { trip in
+                    Section(selectedYear == 0 ? L("Trips") : L("Trips — %@", yearLabel)) {
+                        if visibleTrips.isEmpty {
+                            Text("No trips in \(yearLabel).")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(visibleTrips) { trip in
                             Button {
                                 tripToEdit = trip
                             } label: {
@@ -75,7 +99,7 @@ struct TripListView: View {
                             .buttonStyle(.plain)
                             .foregroundStyle(.primary)
                         }
-                        .onDelete { offsets in pendingDeletion = offsets.map { sortedTrips[$0] } }
+                        .onDelete { offsets in pendingDeletion = offsets.map { visibleTrips[$0] } }
                     }
                 }
             }
@@ -95,7 +119,7 @@ struct TripListView: View {
     private func tripRow(_ trip: TripLog) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(trip.purpose.rawValue)
+                Text(LocalizedStringKey(trip.purpose.rawValue))
                     .font(.headline)
                 Spacer()
                 Text(formattedDistance(trip.milesDriven, unit: distanceUnit))
@@ -148,10 +172,10 @@ struct MileageRateEditor: View {
     }
 
     private var validationIssue: String? {
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return "Enter the rate in dollars per mile." }
-        guard let value = parsedRate else { return "Enter the rate as a number, like 0.70." }
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return L("Enter the rate in dollars per mile.") }
+        guard let value = parsedRate else { return L("Enter the rate as a number, like 0.70.") }
         guard Self.allowedRange.contains(value) else {
-            return "Enter a rate between $0.01 and $5.00 per mile. For 70 cents, enter 0.70."
+            return L("Enter a rate between $0.01 and $5.00 per mile. For 70 cents, enter 0.70.")
         }
         return nil
     }

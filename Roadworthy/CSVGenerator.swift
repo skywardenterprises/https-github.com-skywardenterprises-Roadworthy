@@ -28,8 +28,8 @@ enum CSVGenerator {
         // makes it look like the record has no receipt at all when it does.
         // Flagging it here means nothing is lost without your knowledge;
         // the PDF export is what actually embeds the image.
-        var header = ["Date", "Vehicle", "Type", "Title", "Mileage (mi)"]
-        if includeKilometers { header.append("Mileage (km)") }
+        var header = ["Date", "Vehicle", "Type", "Title", "Odometer (mi)"]
+        if includeKilometers { header.append("Odometer (km)") }
         header += ["Cost", "Shop", "Notes", "Has Receipt Photo"]
 
         // Columns holding free text, which get spreadsheet-formula protection.

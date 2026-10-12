@@ -44,6 +44,8 @@ enum ExportGenerator {
         let title: String
         let vehicle: Vehicle
         let unit: DistanceUnit
+        /// False leaves out receipt photos, for a smaller, text-only report.
+        var includePhotos: Bool = true
     }
 
     // MARK: - Public entry points
@@ -57,9 +59,9 @@ enum ExportGenerator {
         }
     }
 
-    static func fullVehicleHistoryPDF(vehicle: Vehicle, unit: DistanceUnit) -> Data {
+    static func fullVehicleHistoryPDF(vehicle: Vehicle, unit: DistanceUnit, includePhotos: Bool = true) -> Data {
         render { ctx in
-            let page = PageContext(ctx: ctx, title: "Vehicle History Report", vehicle: vehicle, unit: unit)
+            let page = PageContext(ctx: ctx, title: "Vehicle History Report", vehicle: vehicle, unit: unit, includePhotos: includePhotos)
             var cursor: CGFloat = 0
             beginPage(page, cursor: &cursor)
 
@@ -243,7 +245,7 @@ enum ExportGenerator {
     /// capped height so one large photo can't dominate the whole report.
     /// Reserves space first so the image never gets cut across a page break.
     private static func drawReceiptPhotoIfPresent(_ data: Data?, page: PageContext, cursor: inout CGFloat) {
-        guard let data, let image = downsampledImage(data), image.size.height > 0 else { return }
+        guard page.includePhotos, let data, let image = downsampledImage(data), image.size.height > 0 else { return }
         let maxHeight: CGFloat = 180
         let aspectRatio = image.size.width / image.size.height
         var width = contentWidth
@@ -264,14 +266,23 @@ enum ExportGenerator {
         let vehicle = page.vehicle
         draw(text: "Vehicle Information", attributes: sectionHeaderAttributes, cursor: &cursor)
         cursor += 6
-        let info = [
+        var info = [
             "Year/Make/Model: \(vehicle.year) \(vehicle.make) \(vehicle.model)",
             "Nickname: \(vehicle.nickname.isEmpty ? "—" : vehicle.nickname)",
+            "Engine Size: \(vehicle.engineSizeDescription ?? "—")",
             "Odometer: \(formattedDistance(vehicle.currentMileage, unit: page.unit))",
             "VIN: \(vehicle.vin.isEmpty ? "—" : vehicle.vin)",
             "Plate: \(vehicle.licensePlate.isEmpty ? "—" : vehicle.licensePlate)",
             "Purchased: \(vehicle.purchaseDate.formatted(date: .abbreviated, time: .omitted))"
         ]
+        var extra: [String] = []
+        if !vehicle.trim.isEmpty { extra.append("Trim: \(vehicle.trim)") }
+        if let cylinders = vehicle.cylinders { extra.append("Cylinders: \(cylinders)") }
+        if !vehicle.fuelType.isEmpty { extra.append("Fuel Type: \(vehicle.fuelType)") }
+        if !vehicle.transmission.isEmpty { extra.append("Transmission: \(vehicle.transmission)") }
+        if !vehicle.driveType.isEmpty { extra.append("Drive Type: \(vehicle.driveType)") }
+        if !vehicle.bodyStyle.isEmpty { extra.append("Body Style: \(vehicle.bodyStyle)") }
+        info.insert(contentsOf: extra, at: 3)
         for line in info {
             drawFlowing(line, attributes: bodyAttributes, page: page, cursor: &cursor)
             cursor += 2

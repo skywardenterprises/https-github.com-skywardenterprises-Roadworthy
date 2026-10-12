@@ -59,25 +59,25 @@ struct AddEditMaintenanceView: View {
 
     private var validationIssue: String? {
         if selectedType == nil {
-            return "Choose a maintenance type to save."
+            return L("Choose a maintenance type to save.")
         }
         if requiresOdometer && enteredMileage == nil {
-            return "Enter the odometer reading to save."
+            return L("Enter the odometer reading to save.")
         }
         if dueByMileage {
             guard let due = enteredNextDueMileage, due > 0 else {
-                return "Enter the next due odometer reading, or turn off Due by Odometer."
+                return L("Enter the next due odometer reading, or turn off Due by Odometer.")
             }
             if let mileage = enteredMileage, due <= mileage {
-                return "The next due odometer reading must be higher than this service's reading."
+                return L("The next due odometer reading must be higher than this service's reading.")
             }
         }
         if dueByDate,
            Calendar.current.startOfDay(for: nextDueDate) <= Calendar.current.startOfDay(for: date) {
-            return "The next due date must be after the service date."
+            return L("The next due date must be after the service date.")
         }
         if isLoadingPhoto {
-            return "Waiting for the receipt photo to finish loading…"
+            return L("Waiting for the receipt photo to finish loading…")
         }
         return nil
     }
@@ -192,7 +192,7 @@ struct AddEditMaintenanceView: View {
                 if isOn { scroll(to: Self.nextDueMileageRowID, with: proxy) }
             }
             }
-            .navigationTitle(isEditing ? "Edit Maintenance" : "Log Maintenance")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Maintenance" : "Log Maintenance"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {
@@ -306,6 +306,9 @@ struct AddEditMaintenanceView: View {
             context.insert(newRecord)
         }
 
+        // Saving an entry with a reading restarts the 30-day odometer check-in clock,
+        // even if the entry itself is dated further back.
+        if mileage > 0 { vehicle.odometerUpdatedDate = .now }
         if mileage > vehicle.currentMileage {
             vehicle.currentMileage = mileage
         }

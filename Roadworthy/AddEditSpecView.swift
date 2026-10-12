@@ -80,7 +80,7 @@ struct AddEditSpecView: View {
 
     private var validationIssue: String? {
         if finalName.isEmpty {
-            return presetName == Self.customOption ? "Enter a name for this item." : "Choose an item."
+            return presetName == Self.customOption ? L("Enter a name for this item.") : L("Choose an item.")
         }
         return nil
     }
@@ -101,7 +101,7 @@ struct AddEditSpecView: View {
                 Section {
                     Picker("Category", selection: $category) {
                         ForEach(SpecCategory.allCases) { cat in
-                            Text(cat.displayName).tag(cat)
+                            Text(LocalizedStringKey(cat.displayName)).tag(cat)
                         }
                     }
                     Picker("Item", selection: $presetName) {
@@ -143,7 +143,7 @@ struct AddEditSpecView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Spec" : "Add Spec")
+            .navigationTitle(LocalizedStringKey(isEditing ? "Edit Spec" : "Add Spec"))
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .toolbar {

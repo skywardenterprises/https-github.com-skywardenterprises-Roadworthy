@@ -31,7 +31,7 @@ struct AutoDecimalField: View {
                 Text(prefix)
                     .foregroundStyle(rawDigits.isEmpty ? .secondary : .primary)
             }
-            TextField(title, text: Binding(
+            TextField(LocalizedStringKey(title), text: Binding(
                 get: { formattedDisplay },
                 set: { newValue in
                     rawDigits = String(newValue.filter(\.isNumber).prefix(9))

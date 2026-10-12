@@ -59,12 +59,12 @@ struct OnboardingView: View {
                     .font(.system(size: 64))
                     .foregroundStyle(Color.accentColor)
 
-                Text(onboardingPages[currentPage].title)
+                Text(LocalizedStringKey(onboardingPages[currentPage].title))
                     .font(.title2)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
 
-                Text(onboardingPages[currentPage].description)
+                Text(LocalizedStringKey(onboardingPages[currentPage].description))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -102,7 +102,7 @@ struct OnboardingView: View {
             Button {
                 goToNextPage()
             } label: {
-                Text(isLastPage ? "Get Started" : "Next")
+                Text(LocalizedStringKey(isLastPage ? "Get Started" : "Next"))
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)

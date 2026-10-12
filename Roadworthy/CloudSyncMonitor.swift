@@ -67,14 +67,14 @@ enum CloudSyncState: Equatable {
 extension CloudSyncState {
     var title: String {
         switch self {
-        case .unknown: return "Checking Sync Status…"
-        case .unavailable: return "iCloud Sync Unavailable"
-        case .localOnly: return "iCloud Sync Is Off"
-        case .syncing: return "Syncing…"
-        case .synced: return "Synced"
-        case .waitingToRetry: return "Waiting to Sync"
-        case .needsAction: return "Sync Needs Attention"
-        case .error: return "Sync Problem"
+        case .unknown: return L("Checking Sync Status…")
+        case .unavailable: return L("iCloud Sync Unavailable")
+        case .localOnly: return L("iCloud Sync Is Off")
+        case .syncing: return L("Syncing…")
+        case .synced: return L("Synced")
+        case .waitingToRetry: return L("Waiting to Sync")
+        case .needsAction: return L("Sync Needs Attention")
+        case .error: return L("Sync Problem")
         }
     }
 
@@ -85,9 +85,9 @@ extension CloudSyncState {
         case .unavailable(let message), .waitingToRetry(let message), .needsAction(let message), .error(let message):
             return message
         case .localOnly(let since, let code):
-            return "Saved on this device only since \(since.formatted(date: .abbreviated, time: .omitted)). Code \(code)."
+            return L("Saved on this device only since %@. Code %@.", since.formatted(date: .abbreviated, time: .omitted), "\(code)")
         case .synced(let date):
-            return "Last synced \(date.formatted(.relative(presentation: .named)))"
+            return L("Last synced %@", date.formatted(.relative(presentation: .named)))
         }
     }
 
@@ -113,11 +113,11 @@ extension CloudSyncState {
     var footer: String {
         switch self {
         case .unavailable:
-            return "Open the Settings app, tap your name at the top, then iCloud, to sign in."
+            return L("Open the Settings app, tap your name at the top, then iCloud, to sign in.")
         case .localOnly:
-            return "Roadworthy couldn't connect to its iCloud storage, so changes on this device aren't syncing. Don't delete the app until this is resolved. Anything added since then exists only on this device."
+            return L("Roadworthy couldn't connect to its iCloud storage, so changes on this device aren't syncing. Don't delete the app until this is resolved. Anything added since then exists only on this device.")
         default:
-            return "Your data syncs automatically across your devices via iCloud. This can't be triggered manually. It happens on its own in the background."
+            return L("Your data syncs automatically across your devices via iCloud. This can't be triggered manually. It happens on its own in the background.")
         }
     }
 
@@ -127,7 +127,7 @@ extension CloudSyncState {
     var bannerMessage: String? {
         switch self {
         case .localOnly(_, let code):
-            return "iCloud sync is off on this device. Your data is saved here only, so don't delete the app. Update Roadworthy or contact support (code \(code))."
+            return L("iCloud sync is off on this device. Your data is saved here only, so don't delete the app. Update Roadworthy or contact support (code %@).", "\(code)")
         case .needsAction(let message), .error(let message):
             return message
         default:

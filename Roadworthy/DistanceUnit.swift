@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// The person's preferred distance unit, stored as a simple app-wide
 /// preference (not per-vehicle) via @AppStorage. All distances are still
@@ -10,8 +10,14 @@ enum DistanceUnit: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
+    /// For `Text`/`Picker` labels. Resolved by SwiftUI from the app locale, so
+    /// it switches the moment the language changes.
+    var titleKey: LocalizedStringKey {
         self == .miles ? "Miles" : "Kilometers"
+    }
+
+    var displayName: String {
+        self == .miles ? L("Miles") : L("Kilometers")
     }
 }
 
