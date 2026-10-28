@@ -19,37 +19,59 @@ struct VehicleListView: View {
                     NavigationLink {
                         VehicleDetailView(vehicle: vehicle)
                     } label: {
-                        VehicleRow(vehicle: vehicle)
+                        VehicleCardRow(vehicle: vehicle)
                     }
+                    .navigationLinkIndicatorVisibility(.hidden)
+                    .rwCardRow()
                 }
                 .onDelete { offsets in
                     vehiclePendingDeletion = offsets.first.map { vehicles[$0] }
                 }
 
                 if !inactiveVehicles.isEmpty {
-                    Section {
-                        NavigationLink {
-                            InactiveVehiclesView()
-                        } label: {
+                    NavigationLink {
+                        InactiveVehiclesView()
+                    } label: {
+                        HStack {
                             Label(
                                 LocalizedStringKey("Inactive Vehicles (\(inactiveVehicles.count))"),
                                 systemImage: "archivebox"
                             )
                             .foregroundStyle(.secondary)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
                         }
+                    }
+                    .navigationLinkIndicatorVisibility(.hidden)
+                    .rwCardRow()
+                }
+
+                if !vehicles.isEmpty || !inactiveVehicles.isEmpty {
+                    RoadworthyBrandFooter()
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets())
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(RWColor.background)
+            .overlay {
+                if vehicles.isEmpty && inactiveVehicles.isEmpty {
+                    ContentUnavailableView {
+                        Label("Welcome to Roadworthy", systemImage: "car.fill")
+                    } description: {
+                        Text("Your garage starts here. Add your first vehicle to begin tracking maintenance, fuel, expenses, and more.")
+                    } actions: {
+                        Button("Add Vehicle") { showingAddVehicle = true }
+                            .buttonStyle(.borderedProminent)
                     }
                 }
             }
-            .overlay {
-                if vehicles.isEmpty && inactiveVehicles.isEmpty {
-                    ContentUnavailableView(
-                        "Let's Get You On the Road",
-                        systemImage: "car.fill",
-                        description: Text("Add your first vehicle to start tracking maintenance, fuel, and more.")
-                    )
-                }
-            }
-            .navigationTitle("Roadworthy")
+            .navigationTitle("Vehicles")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -122,6 +144,64 @@ struct VehicleListView: View {
             return
         }
         Haptics.delete()
+    }
+}
+
+struct VehicleCardRow: View {
+    let vehicle: Vehicle
+    @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let compact = typeSize.isAccessibilitySize
+        let layout = compact
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 12))
+
+        layout {
+            thumbnail(width: compact ? 88 : 110, height: compact ? 56 : 70)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(vehicle.displayName)
+                    .font(.headline)
+                Text(String(vehicle.year) + " " + vehicle.make + " " + vehicle.model)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(formattedDistance(vehicle.currentMileage, unit: distanceUnit))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !compact {
+                Spacer(minLength: 4)
+                VehicleTypeIcon(type: vehicle.vehicleType, size: 20)
+                    .foregroundStyle(vehicle.vehicleType.rowTint)
+                    .accessibilityHidden(true)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func thumbnail(width: CGFloat, height: CGFloat) -> some View {
+        if let data = vehicle.photoData, let uiImage = ThumbnailCache.image(for: data, maxPixel: 360) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: width, height: height)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .accessibilityHidden(true)
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.secondary.opacity(0.15))
+                .frame(width: width, height: height)
+                .overlay(VehicleTypeIcon(type: vehicle.vehicleType, size: 24).foregroundStyle(.secondary))
+                .accessibilityHidden(true)
+        }
     }
 }
 

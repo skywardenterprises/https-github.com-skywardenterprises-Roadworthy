@@ -316,7 +316,7 @@ struct AddEditVehicleView: View {
             .sheet(isPresented: $showingVINPrompt) {
                 VINPromptView(
                     initialVIN: vin,
-                    skipTitle: isEditing ? "Cancel" : "Skip, I'll Enter It Myself",
+                    skipTitle: isEditing ? "Cancel" : "Skip This Step",
                     onSkip: isEditing ? nil : { skippedVIN in keepSkippedVIN(skippedVIN) },
                     onDecoded: { decodedVIN, result in
                         applyVIN(decodedVIN, result)

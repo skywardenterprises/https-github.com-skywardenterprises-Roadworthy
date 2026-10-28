@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 // MARK: - Result
 
@@ -32,7 +33,7 @@ nonisolated enum VINDecodeError: Error {
     var message: String {
         switch self {
         case .offline:
-            return L("Couldn't reach the VIN database. Check your internet connection, or tap Skip to keep the VIN and look it up later.")
+            return L("Couldn't reach the VIN database. Check your internet connection, or tap Skip This Step to keep the VIN and look it up later.")
         case .notFound:
             return L("No vehicle was found for that VIN. Check the characters and try again.")
         case .service:
@@ -100,7 +101,10 @@ nonisolated enum VINDecoder {
         if let value = Double(text("EngineCylinders")), value > 0 { result.cylinders = Int(value) }
 
         if let liters = Double(text("DisplacementL")), liters > 0 {
-            result.engineSize = (liters * 100).rounded() / 100
+            // NHTSA returns exact displacement (for example 3.471). Round it
+            // to the nearest 0.5 L, so the field reads 3.5 or 2. Engines under 1.0 L (small
+            // motorcycles) keep one decimal so they don't all become 0.5.
+            result.engineSize = liters >= 1 ? (liters * 2).rounded() / 2 : (liters * 10).rounded() / 10
             result.engineUnitSymbol = "L"
         } else if let cc = Double(text("DisplacementCC")), cc > 0 {
             result.engineSize = cc.rounded()
@@ -143,6 +147,9 @@ struct VINPromptView: View {
     @State private var errorMessage: String?
     @State private var showingScanner = false
     @State private var showingHelp = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var isReadingPhoto = false
+    @State private var notFoundMessage: String?
     @FocusState private var focused: Bool
 
     /// `onSkip` receives whatever is in the VIN field when the person skips,
@@ -155,7 +162,7 @@ struct VINPromptView: View {
         self.onDecoded = onDecoded
     }
 
-    private var canLookUp: Bool { vin.count == 17 && !isLooking }
+    private var canLookUp: Bool { vin.count == 17 && !isLooking && !isReadingPhoto }
 
     var body: some View {
         NavigationStack {
@@ -175,6 +182,25 @@ struct VINPromptView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
 
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "wifi")
+                            .font(.headline)
+                            .foregroundStyle(.tint)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Internet connection required")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Looking up a VIN sends it to the U.S. NHTSA public vehicle database. Scanning works offline: with no connection, scan the VIN now and look it up later.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .accessibilityElement(children: .combine)
+
                     Group {
                         VStack(spacing: 6) {
                             Button {
@@ -190,6 +216,27 @@ struct VINPromptView: View {
                             .disabled(isLooking)
 
                             Text("Fastest way: scan the barcode on the driver's door jamb sticker.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+
+                            PhotosPicker(selection: $photoItem, matching: .images) {
+                                HStack {
+                                    if isReadingPhoto {
+                                        ProgressView()
+                                        Text("Reading photo…")
+                                    } else {
+                                        Label("Choose Photo from Library", systemImage: "photo.on.rectangle")
+                                    }
+                                }
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isLooking || isReadingPhoto)
+
+                            Text("Use a photo of the door jamb barcode or of the printed VIN.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
@@ -243,15 +290,21 @@ struct VINPromptView: View {
                         .buttonStyle(.bordered)
                         .disabled(!canLookUp)
 
-                    Button(skipTitle) {
+                    Button {
                         onSkip?(vin)
                         dismiss()
+                    } label: {
+                        Text(skipTitle)
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
                     }
-                        .disabled(isLooking)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.gray)
+                    .disabled(isLooking)
 
                     VStack(spacing: 8) {
                         Text("You can find the VIN on the driver's side of the dashboard near the windshield, on the driver's door jamb sticker, or on your registration and insurance card.")
-                        Text("Looking up a VIN sends it to the U.S. NHTSA public vehicle database and needs an internet connection.")
                     }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -265,6 +318,22 @@ struct VINPromptView: View {
             .navigationBarTitleDisplayMode(.inline)
             .withKeyboardDismiss()
             .sheet(isPresented: $showingHelp) { VINScanHelpView() }
+            .alert(
+                "VIN Not Found",
+                isPresented: Binding(
+                    get: { notFoundMessage != nil },
+                    set: { if !$0 { notFoundMessage = nil } }
+                ),
+                presenting: notFoundMessage
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                readPhoto(item)
+            }
             .fullScreenCover(isPresented: $showingScanner) {
                 VINScannerView { scanned in
                     vin = scanned
@@ -285,6 +354,33 @@ struct VINPromptView: View {
         .padding(.vertical, 6)
     }
 
+    /// Reads a VIN from a photo picked in the library, then looks it up the
+    /// same way a scanned VIN is.
+    private func readPhoto(_ item: PhotosPickerItem) {
+        isReadingPhoto = true
+        errorMessage = nil
+        focused = false
+        Task {
+            let data = try? await item.loadTransferable(type: Data.self)
+            let found: String?
+            if let data {
+                found = await VINPhotoReader.readVIN(from: data)
+            } else {
+                found = nil
+            }
+            isReadingPhoto = false
+            photoItem = nil
+            if let found {
+                vin = found
+                lookUp()
+            } else if data == nil {
+                errorMessage = L("That photo couldn't be loaded. If it is stored in iCloud, check your connection and try again.")
+            } else {
+                notFoundMessage = L("Couldn't find a VIN in that photo. Try a closer, sharper photo of the barcode or the printed VIN, or type it in.")
+            }
+        }
+    }
+
     private func lookUp() {
         guard canLookUp else { return }
         isLooking = true
@@ -297,7 +393,13 @@ struct VINPromptView: View {
                 onDecoded(requested, result)
             } catch let error as VINDecodeError {
                 isLooking = false
-                errorMessage = error.message
+                if case .notFound = error {
+                    // A pop-up, so it can't be missed. Network problems stay
+                    // inline because they point to Skip This Step.
+                    notFoundMessage = error.message
+                } else {
+                    errorMessage = error.message
+                }
             } catch {
                 isLooking = false
             }
