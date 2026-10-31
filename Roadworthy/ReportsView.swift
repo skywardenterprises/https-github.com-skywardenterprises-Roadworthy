@@ -179,6 +179,36 @@ struct ReportsView: View {
         }
     }
 
+    /// Bottom-axis labels for the fuel charts. By Year, every point is labeled
+    /// with its year (the automatic axis shows only months, so the year never
+    /// appeared). By Month the labels include the year as well.
+    @AxisContentBuilder
+    private func fuelXAxisMarks(for points: [AggregatedPoint]) -> some AxisContent {
+        if fuelChartPeriod == .year {
+            AxisMarks(values: points.map(\.date)) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(date.formatted(.dateTime.year()))
+                    }
+                }
+            }
+        } else if fuelChartPeriod == .month {
+            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits), centered: false)
+            }
+        } else {
+            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day(), centered: false)
+            }
+        }
+    }
+
     // MARK: - Section 2: Fuel Trends (MPG + Cost/Gallon)
 
     private var fuelTrendsSection: some View {
@@ -205,6 +235,8 @@ struct ReportsView: View {
                         PointMark(x: .value("Date", point.date), y: .value("MPG", point.value))
                             .foregroundStyle(Color.accentColor)
                     }
+                    .chartXAxis { fuelXAxisMarks(for: mpgAggregated) }
+                    .chartXScale(range: .plotDimension(padding: 20))
                     .frame(height: 180)
                     .padding(.horizontal, 16)
                     .accessibilityLabel("MPG trend chart")
@@ -221,10 +253,12 @@ struct ReportsView: View {
                     Chart(priceAggregated) { point in
                         LineMark(x: .value("Date", point.date), y: .value("Price", point.value))
                             .interpolationMethod(.catmullRom)
-                            .foregroundStyle(.indigo)
+                            .foregroundStyle(RWColor.slate)
                         PointMark(x: .value("Date", point.date), y: .value("Price", point.value))
-                            .foregroundStyle(.indigo)
+                            .foregroundStyle(RWColor.slate)
                     }
+                    .chartXAxis { fuelXAxisMarks(for: priceAggregated) }
+                    .chartXScale(range: .plotDimension(padding: 20))
                     .frame(height: 180)
                     .padding(.horizontal, 16)
                     .accessibilityLabel("Cost per gallon trend chart")
@@ -258,8 +292,8 @@ struct ReportsView: View {
         let expenses = vehicle.expenses.filter { range.contains($0.date) }.reduce(0) { $0 + $1.amount }
         return [
             ("Fuel", fuel, Color.accentColor),
-            ("Maintenance", maintenance, Color.indigo),
-            ("Expenses", expenses, Color.pink)
+            ("Maintenance", maintenance, RWColor.slate),
+            ("Expenses", expenses, RWColor.amber)
         ]
     }
 

@@ -8,6 +8,7 @@ struct TripListView: View {
     @State private var tripToEdit: TripLog?
     @State private var pendingDeletion: [TripLog] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     // The IRS standard mileage rate changes periodically (sometimes mid-year).
     // Stored as a simple device setting so it's easy to update without an app update.
@@ -106,6 +107,19 @@ struct TripListView: View {
         }
         .navigationTitle("Trips")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditTripView(vehicle: vehicle, trip: nil)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "trip") { deleteTrips($0) }
         .saveErrorAlert($saveError)
         .sheet(item: $tripToEdit) { trip in
@@ -187,13 +201,17 @@ struct MileageRateEditor: View {
                     HStack {
                         Text("$")
                         TextField("0.700", text: $text)
-                            .keyboardType(.decimalPad)
+                            .numericKeyboard(.decimalPad)
+                            .onChange(of: text) { _, newValue in
+                                let filtered = String(newValue.filter { $0.isNumber || $0 == "." || $0 == "," }.prefix(8))
+                                if filtered != newValue { text = filtered }
+                            }
                         Text("per mile").foregroundStyle(.secondary)
                     }
                 } footer: {
                     VStack(alignment: .leading, spacing: 6) {
                         if let validationIssue {
-                            Text(validationIssue).foregroundStyle(.orange)
+                            Text(validationIssue).foregroundStyle(RWColor.amber)
                         }
                         Text("The IRS standard mileage rate changes periodically — sometimes mid-year. Update this to match the current rate for an accurate deduction estimate.")
                     }

@@ -107,11 +107,11 @@ struct ImportView: View {
                 let excludedCount = excludedFuelIndices.count + excludedMaintenanceIndices.count
                 if excludedCount > 0 {
                     Text("\(excludedCount) flagged as possible duplicates and excluded by default — see below.")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(RWColor.amber)
                 }
                 if !result.skippedRows.isEmpty {
                     Text("Rows that couldn't be read and won't be imported: \(result.skippedRows.count) — see below.")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(RWColor.amber)
                 }
             }
 
@@ -193,7 +193,7 @@ struct ImportView: View {
                             if let reason = entry.duplicateReason {
                                 Text(reason.description)
                                     .font(.caption)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(RWColor.amber)
                             }
                         }
                     }
@@ -215,7 +215,7 @@ struct ImportView: View {
                             if let reason = entry.duplicateReason {
                                 Text(reason.description)
                                     .font(.caption)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(RWColor.amber)
                             }
                         }
                     }

@@ -7,6 +7,7 @@ struct SpecListView: View {
     @State private var specToEdit: VehicleSpec?
     @State private var pendingDeletion: [VehicleSpec] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     private var parts: [VehicleSpec] {
         vehicle.specs.filter { $0.category == .part }.sorted { $0.name < $1.name }
@@ -46,6 +47,19 @@ struct SpecListView: View {
         }
         .navigationTitle("Vehicle Specs")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditSpecView(vehicle: vehicle, spec: nil)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "spec") { deleteSpecs($0) }
         .saveErrorAlert($saveError)
         .sheet(item: $specToEdit) { spec in

@@ -69,7 +69,7 @@ struct AddEditTripView: View {
                 }
 
                 Section {
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    WheelDatePicker(title: "Date", date: $date)
                     DigitsField(
                         label: "Start Odometer (\(distanceUnit.rawValue))",
                         placeholder: "Start Odometer",

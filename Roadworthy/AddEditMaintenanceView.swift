@@ -7,6 +7,33 @@ struct AddEditMaintenanceView: View {
     let vehicle: Vehicle
     @AppStorage(SettingKey.distanceUnit) private var distanceUnit: DistanceUnit = .miles
 
+    // Every maintenance record across every vehicle, most recent first —
+    // used to build the Shop Name suggestions. The same shop often services
+    // more than one vehicle, so this isn't scoped to the current vehicle.
+    //
+    // Limited to the 200 most recent records and to the two fields the
+    // suggestions need, instead of fetching every record in the app.
+    @Query(Self.shopHistoryDescriptor) private var allMaintenanceRecords: [MaintenanceRecord]
+
+    private static var shopHistoryDescriptor: FetchDescriptor<MaintenanceRecord> {
+        var descriptor = FetchDescriptor<MaintenanceRecord>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        descriptor.propertiesToFetch = [\.shopName, \.date]
+        descriptor.fetchLimit = 200
+        return descriptor
+    }
+
+    private var shopNameHistory: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for record in allMaintenanceRecords {
+            let name = record.shopName.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, !seen.contains(name.lowercased()) else { continue }
+            seen.insert(name.lowercased())
+            result.append(name)
+        }
+        return result
+    }
+
     // If editing an existing record, pass it in. Nil means "creating new".
     var record: MaintenanceRecord?
 
@@ -137,7 +164,7 @@ struct AddEditMaintenanceView: View {
                         TextField("Describe the maintenance type", text: $otherTypeDescription)
                     }
                     TextField("Title (optional)", text: $title)
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    WheelDatePicker(title: "Date", date: $date)
                     DigitsField(
                         label: "Odometer (\(distanceUnit.rawValue))",
                         placeholder: requiresOdometer ? "Odometer" : "Optional",
@@ -149,14 +176,14 @@ struct AddEditMaintenanceView: View {
                         AutoDecimalField(title: "Cost", text: $costText)
                     }
                     TextField("Notes", text: $notes, axis: .vertical)
-                    TextField("Shop Name (optional)", text: $shopName)
+                    AutocompleteField(title: "Shop Name (optional)", text: $shopName, history: shopNameHistory)
                     ReceiptPhotoField(photoData: $receiptPhotoData, isLoading: $isLoadingPhoto)
                 }
 
                 Section {
                     Toggle("Due by Date", isOn: $dueByDate)
                     if dueByDate {
-                        DatePicker("Next Due Date", selection: $nextDueDate, displayedComponents: .date)
+                        WheelDatePicker(title: "Next Due Date", date: $nextDueDate)
                             .id(Self.nextDueDateRowID)
                     }
                     Toggle("Due by Odometer", isOn: $dueByMileage)
@@ -284,7 +311,7 @@ struct AddEditMaintenanceView: View {
             record.date = date
             record.mileage = mileage
             record.cost = cost
-            record.shopName = shopName.trimmed
+            record.shopName = shopName.normalizedPlaceName(history: shopNameHistory)
             record.notes = notes
             record.receiptPhotoData = receiptPhotoData
             record.nextDueMileage = nextDueMileage
@@ -296,7 +323,7 @@ struct AddEditMaintenanceView: View {
                 date: date,
                 mileage: mileage,
                 cost: cost,
-                shopName: shopName.trimmed,
+                shopName: shopName.normalizedPlaceName(history: shopNameHistory),
                 notes: notes,
                 nextDueMileage: nextDueMileage,
                 nextDueDate: nextDueDateValue,

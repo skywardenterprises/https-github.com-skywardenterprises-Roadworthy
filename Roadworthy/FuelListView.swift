@@ -8,6 +8,7 @@ struct FuelListView: View {
     @State private var logToEdit: FuelLog?
     @State private var pendingDeletion: [FuelLog] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     private var sortedLogs: [FuelLog] {
         vehicle.fuelLogs.sorted { $0.date > $1.date }
@@ -99,6 +100,19 @@ struct FuelListView: View {
         }
         .navigationTitle("Fuel")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditFuelView(vehicle: vehicle, log: nil)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "fuel log") { deleteLogs($0) }
         .saveErrorAlert($saveError)
         .sheet(item: $logToEdit) { log in

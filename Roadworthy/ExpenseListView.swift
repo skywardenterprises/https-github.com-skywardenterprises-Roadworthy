@@ -7,6 +7,7 @@ struct ExpenseListView: View {
     @State private var expenseToEdit: ExpenseRecord?
     @State private var pendingDeletion: [ExpenseRecord] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     private var sortedExpenses: [ExpenseRecord] {
         vehicle.expenses.sorted { $0.date > $1.date }
@@ -28,7 +29,7 @@ struct ExpenseListView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Text(LocalizedStringKey(expense.category.rawValue)).font(.headline)
+                                    Text(expense.categoryDisplayName).font(.headline)
                                     if expense.receiptPhotoData != nil {
                                         Image(systemName: "paperclip")
                                             .font(.caption2)
@@ -58,6 +59,19 @@ struct ExpenseListView: View {
         }
         .navigationTitle("Expenses")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditExpenseView(vehicle: vehicle, expense: nil)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "expense") { deleteExpenses($0) }
         .saveErrorAlert($saveError)
         .sheet(item: $expenseToEdit) { expense in

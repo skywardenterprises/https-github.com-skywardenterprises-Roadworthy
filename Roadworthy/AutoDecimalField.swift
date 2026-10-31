@@ -38,7 +38,7 @@ struct AutoDecimalField: View {
                     text = plainDecimalString
                 }
             ))
-            .keyboardType(.numberPad)
+            .numericKeyboard(.numberPad)
             .multilineTextAlignment(.trailing)
         }
         .onAppear { syncFromExternalText() }

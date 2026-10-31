@@ -221,6 +221,7 @@ private struct OverviewTab: View {
 
     @State private var isShowingFullPhoto = false
     @State private var reminderToEdit: MaintenanceReminder?
+    @State private var maintenanceToEdit: MaintenanceRecord?
 
     @State private var showingInsuranceCardOptions = false
     @State private var showingInsuranceCamera = false
@@ -357,7 +358,7 @@ private struct OverviewTab: View {
 
                     statSection(title: "VEHICLE INFO") {
                         VStack(spacing: 0) {
-                            infoRow("Type", L(vehicle.vehicleType.rawValue))
+                            infoRow("Type", vehicle.vehicleTypeDisplayName)
                             Divider().padding(.leading, 12)
                             infoRow("Year/Make/Model", "\(vehicle.year) \(vehicle.make) \(vehicle.model)")
                             if !vehicle.trim.isEmpty {
@@ -400,6 +401,14 @@ private struct OverviewTab: View {
                             }
                             Divider().padding(.leading, 12)
                             infoRow("Purchased", vehicle.purchaseDate.formatted(date: .abbreviated, time: .omitted))
+                            if vehicle.purchasePrice > 0 {
+                                Divider().padding(.leading, 12)
+                                infoRow("Purchase Price", vehicle.purchasePrice.formatted(.currency(code: AppCurrency.code)))
+                            }
+                            if let value = vehicle.estimatedCurrentValue, value > 0 {
+                                Divider().padding(.leading, 12)
+                                infoRow("Est. Current Value", value.formatted(.currency(code: AppCurrency.code)))
+                            }
                             Divider().padding(.leading, 12)
                             insuranceCardRow
                         }
@@ -411,6 +420,9 @@ private struct OverviewTab: View {
                         statSection(title: "UPCOMING / DUE") {
                             VStack(spacing: 10) {
                                 ForEach(upcomingMaintenance) { record in
+                                    Button {
+                                        maintenanceToEdit = record
+                                    } label: {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(record.title)
                                             .font(.subheadline)
@@ -430,6 +442,9 @@ private struct OverviewTab: View {
                                     .padding(12)
                                     .background(Color(.secondarySystemGroupedBackground))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .contentShape(RoundedRectangle(cornerRadius: 10))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -527,11 +542,15 @@ private struct OverviewTab: View {
                     Image(systemName: "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 28, alignment: .trailing)
                         .accessibilityHidden(true)
                 }
                 content()
             }
             .padding(.horizontal, 16)
+            // Without this, the empty space in the row (between the title and
+            // the arrow, and around the cards) doesn't respond to taps.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -627,6 +646,9 @@ private struct OverviewTab: View {
         }
         .sheet(item: $reminderToEdit) { reminder in
             AddEditReminderView(vehicle: vehicle, reminder: reminder)
+        }
+        .sheet(item: $maintenanceToEdit) { record in
+            AddEditMaintenanceView(vehicle: vehicle, record: record)
         }
         .sheet(isPresented: $showingInsuranceCamera) {
             CameraPicker(imageData: insuranceCardBinding)

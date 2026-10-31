@@ -116,7 +116,11 @@ struct AddEditSpecView: View {
                     if category == .torque {
                         HStack {
                             TextField("Value", text: $torqueMagnitude)
-                                .keyboardType(.decimalPad)
+                                .numericKeyboard(.decimalPad)
+                                .onChange(of: torqueMagnitude) { _, newValue in
+                                    let filtered = String(newValue.filter { $0.isNumber || $0 == "." || $0 == "," }.prefix(8))
+                                    if filtered != newValue { torqueMagnitude = filtered }
+                                }
                             Picker("Unit", selection: $torqueUnit) {
                                 ForEach(Self.torqueUnits, id: \.self) { unit in
                                     Text(unit).tag(unit)

@@ -366,7 +366,7 @@ enum ExportGenerator {
         for expense in expenses {
             autoreleasepool {
                 ensureSpace(page, needed: 30, cursor: &cursor)
-                let line = "\(expense.date.formatted(date: .abbreviated, time: .omitted))  •  \(expense.category.rawValue)  •  \(expense.amount.formatted(.currency(code: AppCurrency.code)))"
+                let line = "\(expense.date.formatted(date: .abbreviated, time: .omitted))  •  \(expense.categoryDisplayName)  •  \(expense.amount.formatted(.currency(code: AppCurrency.code)))"
                 drawFlowing(line, attributes: bodyAttributes, page: page, cursor: &cursor)
                 if !expense.notes.isEmpty {
                     drawFlowing(expense.notes, attributes: secondaryAttributes, page: page, cursor: &cursor)

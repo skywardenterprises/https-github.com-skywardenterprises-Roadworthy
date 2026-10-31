@@ -25,8 +25,10 @@ struct AddEditVehicleView: View {
     @State private var showingCamera = false
     @State private var showingPhotoLibraryPicker = false
     @State private var showingPhotoViewer = false
+    @State private var cropSource: Data?
     @State private var isActive = true
     @State private var vehicleType: VehicleType = .car
+    @State private var vehicleTypeOther = ""
     @State private var purchasePriceText = ""
     @State private var currentValueText = ""
     @State private var engineSizeText = ""
@@ -38,6 +40,7 @@ struct AddEditVehicleView: View {
     @State private var driveType = ""
     @State private var transmission = ""
     @State private var showingVINPrompt = false
+    @State private var confirmingVINLookup = false
     @State private var vinNote: String?
 
     @State private var didLoad = false
@@ -82,7 +85,7 @@ struct AddEditVehicleView: View {
     private var draft: [AnyHashable] {
         formSnapshot(
             nickname, make, model, year, vin.uppercased(), licensePlate.uppercased(),
-            DigitsField.value(of: mileageText), purchaseDate, photoData, isActive, vehicleType,
+            DigitsField.value(of: mileageText), purchaseDate, photoData, isActive, vehicleType, vehicleType == .other ? vehicleTypeOther.trimmed : "",
             Double(purchasePriceText), Double(currentValueText),
             parsedEngineSize, engineSizeUnit.rawValue,
             trim.trimmed, bodyStyle.trimmed, parsedCylinders, fuelType.trimmed, driveType.trimmed, transmission.trimmed
@@ -140,6 +143,9 @@ struct AddEditVehicleView: View {
                         Button("Choose from Library") { showingPhotoLibraryPicker = true }
                         if photoData != nil {
                             Button("View Photo") { showingPhotoViewer = true }
+                            Button("Crop or Rotate Photo") {
+                                if let photoData { cropSource = ImageNormalizer.workingData(from: photoData) ?? photoData }
+                            }
                             Button("Remove Photo", role: .destructive) { photoData = nil }
                         }
                         Button("Cancel", role: .cancel) {}
@@ -149,6 +155,21 @@ struct AddEditVehicleView: View {
                     }
                     .photosPicker(isPresented: $showingPhotoLibraryPicker, selection: $selectedPhoto, matching: .images)
                     .loadsPickedPhoto($selectedPhoto, into: $photoData, isLoading: $isLoadingPhoto)
+                    .fullScreenCover(isPresented: Binding(
+                        get: { cropSource != nil },
+                        set: { if !$0 { cropSource = nil } }
+                    )) {
+                        if let cropSource {
+                            PhotoCropRotateView(
+                                workingData: cropSource,
+                                onDone: { cropped in
+                                    photoData = cropped
+                                    self.cropSource = nil
+                                },
+                                onCancel: { self.cropSource = nil }
+                            )
+                        }
+                    }
                     .sheet(isPresented: $showingPhotoViewer) {
                         if let photoData, let uiImage = UIImage(data: photoData) {
                             NavigationStack {
@@ -183,6 +204,9 @@ struct AddEditVehicleView: View {
                             .tag(type)
                         }
                     }
+                    if vehicleType == .other {
+                        TextField("Describe the vehicle type (e.g. Trailer)", text: $vehicleTypeOther)
+                    }
                     TextField("Nickname (e.g. My Truck)", text: $nickname)
                     TextField("Make (e.g. Toyota)", text: $make)
                     TextField("Model (e.g. Tacoma)", text: $model)
@@ -190,7 +214,7 @@ struct AddEditVehicleView: View {
                         Text("Engine Size")
                         Spacer()
                         TextField("Optional", text: $engineSizeText)
-                            .keyboardType(.decimalPad)
+                            .numericKeyboard(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .onChange(of: engineSizeText) { _, newValue in
                                 let filtered = String(newValue.filter { $0.isNumber || $0 == "." || $0 == "," }.prefix(7))
@@ -220,7 +244,11 @@ struct AddEditVehicleView: View {
                             vin = newValue.uppercased()
                         }
                     Button {
-                        showingVINPrompt = true
+                        if vin.trimmed.isEmpty {
+                            showingVINPrompt = true
+                        } else {
+                            confirmingVINLookup = true
+                        }
                     } label: {
                         Label("Look Up VIN", systemImage: "magnifyingglass")
                     }
@@ -240,7 +268,7 @@ struct AddEditVehicleView: View {
                         placeholder: "Odometer",
                         text: $mileageText
                     )
-                    DatePicker("Purchase Date", selection: $purchaseDate, displayedComponents: .date)
+                    WheelDatePicker(title: "Purchase Date", date: $purchaseDate)
                 }
 
                 Section("Additional Details") {
@@ -248,7 +276,7 @@ struct AddEditVehicleView: View {
                     optionalTextRow("Body Style", text: $bodyStyle)
                     LabeledContent("Cylinders") {
                         TextField("Optional", text: $cylindersText)
-                            .keyboardType(.numberPad)
+                            .numericKeyboard(.numberPad)
                             .multilineTextAlignment(.trailing)
                             .onChange(of: cylindersText) { _, newValue in
                                 let filtered = String(newValue.filter(\.isNumber).prefix(2))
@@ -323,6 +351,12 @@ struct AddEditVehicleView: View {
                         showingVINPrompt = false
                     }
                 )
+            }
+            .alert("Look Up VIN Again?", isPresented: $confirmingVINLookup) {
+                Button("Cancel", role: .cancel) {}
+                Button("Look Up VIN") { showingVINPrompt = true }
+            } message: {
+                Text("This vehicle already has a VIN. A new lookup can replace the year, make, model, and other details with the results.")
             }
             .saveErrorAlert($saveError)
             .discardChangesGuard(hasChanges: hasChanges, isConfirming: $showingDiscardConfirm) { dismiss() }
@@ -403,6 +437,7 @@ struct AddEditVehicleView: View {
         photoData = vehicle.photoData
         isActive = vehicle.isActive
         vehicleType = vehicle.vehicleType
+        vehicleTypeOther = vehicle.vehicleTypeOther
         purchasePriceText = vehicle.purchasePrice == 0 ? "" : String(vehicle.purchasePrice)
         currentValueText = vehicle.estimatedCurrentValue.map { String($0) } ?? ""
         trim = vehicle.trim
@@ -433,6 +468,7 @@ struct AddEditVehicleView: View {
             vehicle.purchaseDate = purchaseDate
             vehicle.photoData = photoData
             vehicle.vehicleType = vehicleType
+            vehicle.vehicleTypeOther = vehicleType == .other ? vehicleTypeOther.trimmed : ""
             vehicle.purchasePrice = purchasePrice
             vehicle.engineSize = parsedEngineSize
             vehicle.engineSizeUnit = engineSizeUnit
@@ -477,6 +513,7 @@ struct AddEditVehicleView: View {
                 estimatedCurrentValue: currentValue,
                 estimatedValueUpdatedDate: currentValue != nil ? .now : nil
             )
+            newVehicle.vehicleTypeOther = vehicleType == .other ? vehicleTypeOther.trimmed : ""
             newVehicle.engineSize = parsedEngineSize
             newVehicle.engineSizeUnit = engineSizeUnit
             newVehicle.trim = trim.trimmed

@@ -5,11 +5,19 @@ import SwiftUI
 /// Semantic colors for the vehicle list. Each adapts to light and dark
 /// appearance, so nothing here forces a color scheme.
 enum RWColor {
-    static let background = dynamic(light: 0xF2F4F7, dark: 0x10151B)
-    static let card = dynamic(light: 0xFFFFFF, dark: 0x1B222A)
-    /// Muted blue-gray for the footer wordmark. Both values keep at least
-    /// 4.5:1 contrast on the matching background.
-    static let brand = dynamic(light: 0x4F667C, dark: 0x829BB3)
+    /// Same surfaces as every other screen in the app.
+    static let background = Color(.systemGroupedBackground)
+    static let card = Color(.secondarySystemGroupedBackground)
+    /// The Roadworthy teal (the AccentColor asset, matched to the app icon).
+    static let brand = Color.accentColor
+    /// The exact teal of the app icon, for the splash screen in both
+    /// appearances. White text on it has 4.7:1 contrast.
+    static let splash = Color(red: 4 / 255, green: 128 / 255, blue: 139 / 255)
+    /// Muted blue-gray, the second color in charts.
+    static let slate = dynamic(light: 0x4F667C, dark: 0x829BB3)
+    /// Warm amber for warning text. Standard orange is too light to read as
+    /// text on a light background (2.2:1); this is 4.6:1 on white.
+    static let amber = dynamic(light: 0xB45F06, dark: 0xE6A04A)
 
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { trait in

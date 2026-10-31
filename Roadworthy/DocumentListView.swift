@@ -7,6 +7,7 @@ struct DocumentListView: View {
     let vehicle: Vehicle
     @State private var pendingDeletion: [VehicleDocument] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     private var sortedDocs: [VehicleDocument] {
         vehicle.documents.sorted { $0.dateAdded > $1.dateAdded }
@@ -52,6 +53,19 @@ struct DocumentListView: View {
         }
         .navigationTitle("Documents")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditDocumentView(vehicle: vehicle)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "document") { deleteDocs($0) }
         .saveErrorAlert($saveError)
     }

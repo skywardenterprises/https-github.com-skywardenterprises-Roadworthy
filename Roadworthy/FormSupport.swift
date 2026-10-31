@@ -135,7 +135,7 @@ struct DigitsField: View {
             Text(LocalizedStringKey(label))
             Spacer()
             TextField(LocalizedStringKey(placeholder), text: $text)
-                .keyboardType(.numberPad)
+                .numericKeyboard(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .onChange(of: text) { _, newValue in
                     let formatted = Self.formatted(newValue, maxDigits: maxDigits, locale: locale)
@@ -160,6 +160,123 @@ struct DigitsField: View {
     }
 }
 
+// MARK: - Date entry
+
+/// A date row that shows the chosen date and, when tapped, opens spinning
+/// month, day and year wheels right under it. Tap the row again to close
+/// them. This replaces the small pop-up calendar, which was easy to
+/// misread; the wheels show the whole date at once and follow the device's
+/// date order (month, day, year in the U.S.).
+struct WheelDatePicker: View {
+    let title: LocalizedStringKey
+    @Binding var date: Date
+    @State private var isOpen = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isOpen.toggle() }
+            } label: {
+                HStack {
+                    Text(title).foregroundStyle(.primary)
+                    Spacer()
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .foregroundStyle(isOpen ? Color.accentColor : Color.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                DatePicker("", selection: $date, displayedComponents: .date)
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+// MARK: - Repeat interval entry
+
+/// A "repeat every X" entry that is obvious to use: a boxed number field
+/// that looks tappable, a +/- stepper, and one-tap common choices. Used for
+/// the mileage and month intervals on reminders.
+struct IntervalField: View {
+    let label: LocalizedStringKey
+    let unit: Text
+    @Binding var text: String
+    var maxDigits: Int
+    /// How much each tap of the stepper adds or removes.
+    var step: Int = 1
+    /// Common choices shown as buttons: the number and the text on its button.
+    let quickPicks: [(value: Int, label: String)]
+
+    @Environment(\.locale) private var locale
+    @FocusState private var isFocused: Bool
+
+    private var current: Int { DigitsField.value(of: text, maxDigits: maxDigits) ?? 0 }
+    private var maxValue: Int { Int(pow(10.0, Double(maxDigits))) - 1 }
+
+    private func set(_ value: Int) {
+        let clamped = min(max(value, 0), maxValue)
+        text = clamped == 0 ? "" : DigitsField.formatted(String(clamped), maxDigits: maxDigits, locale: locale)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(label)
+                Spacer()
+                TextField("0", text: $text)
+                    .numericKeyboard(.numberPad)
+                    .multilineTextAlignment(.center)
+                    .focused($isFocused)
+                    .frame(minWidth: 84)
+                    .fixedSize()
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 6)
+                    .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isFocused ? Color.accentColor : Color.clear, lineWidth: 2)
+                    )
+                    .onChange(of: text) { _, newValue in
+                        let formatted = DigitsField.formatted(newValue, maxDigits: maxDigits, locale: locale)
+                        if formatted != newValue { text = formatted }
+                    }
+                unit.foregroundStyle(.secondary)
+                Stepper("", onIncrement: { set(current + step) }, onDecrement: { set(current - step) })
+                    .labelsHidden()
+            }
+            Text("Common choices")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(quickPicks, id: \.value) { pick in
+                        Button {
+                            set(pick.value)
+                        } label: {
+                            Text(pick.label)
+                                .font(.subheadline)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(current == pick.value ? Color.accentColor : Color(.tertiarySystemFill), in: Capsule())
+                                .foregroundStyle(current == pick.value ? Color.white : Color.primary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 // MARK: - Unsaved-change tracking
 
 /// A comparable snapshot of a form's values. Each form takes one after
@@ -178,7 +295,7 @@ struct FormIssueRow: View {
     var body: some View {
         Label(message, systemImage: "info.circle")
             .font(.footnote)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.red)
     }
 }
 

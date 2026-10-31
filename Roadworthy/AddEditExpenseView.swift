@@ -10,6 +10,7 @@ struct AddEditExpenseView: View {
     var expense: ExpenseRecord?
 
     @State private var category: ExpenseCategory = .insurance
+    @State private var categoryOther = ""
     @State private var date = Date.now
     @State private var amountText = ""
     @State private var notes = ""
@@ -38,7 +39,7 @@ struct AddEditExpenseView: View {
     }
 
     private var draft: [AnyHashable] {
-        formSnapshot(category, date, Double(amountText), notes, receiptPhotoData)
+        formSnapshot(category, category == .other ? categoryOther.trimmed : "", date, Double(amountText), notes, receiptPhotoData)
     }
 
     private var hasChanges: Bool { didLoad && draft != loadedDraft }
@@ -56,7 +57,10 @@ struct AddEditExpenseView: View {
                             Text(LocalizedStringKey(category.rawValue)).tag(category)
                         }
                     }
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    if category == .other {
+                        TextField("Describe the expense (e.g. Parking)", text: $categoryOther)
+                    }
+                    WheelDatePicker(title: "Date", date: $date)
                     HStack {
                         Text("Amount")
                         Spacer()
@@ -110,6 +114,7 @@ struct AddEditExpenseView: View {
         }
         guard let expense else { return }
         category = expense.category
+        categoryOther = expense.categoryOther
         date = expense.date
         amountText = expense.amount == 0 ? "" : String(expense.amount)
         notes = expense.notes
@@ -129,12 +134,14 @@ struct AddEditExpenseView: View {
         let amount = Double(amountText) ?? 0
         if let expense {
             expense.category = category
+            expense.categoryOther = category == .other ? categoryOther.trimmed : ""
             expense.date = date
             expense.amount = amount
             expense.notes = notes
             expense.receiptPhotoData = receiptPhotoData
         } else {
             let newExpense = ExpenseRecord(category: category, date: date, amount: amount, notes: notes, receiptPhotoData: receiptPhotoData)
+            newExpense.categoryOther = category == .other ? categoryOther.trimmed : ""
             newExpense.vehicle = vehicle
             context.insert(newExpense)
         }

@@ -96,6 +96,14 @@ final class Vehicle {
         get { VehicleType(rawValue: vehicleTypeRaw) ?? .other }
         set { vehicleTypeRaw = newValue.rawValue }
     }
+    /// What the person typed when the vehicle type is "Other" (a trailer, a
+    /// boat, a golf cart). Empty for every other type.
+    var vehicleTypeOther: String = ""
+    /// The type as shown on screen: the typed description for "Other" when
+    /// there is one, otherwise the type's own (translated) name.
+    var vehicleTypeDisplayName: String {
+        vehicleType == .other && !vehicleTypeOther.isEmpty ? vehicleTypeOther : L(vehicleType.rawValue)
+    }
     var purchasePrice: Double = 0
     var estimatedCurrentValue: Double?
     var estimatedValueUpdatedDate: Date?
@@ -528,6 +536,9 @@ final class FuelLog {
         get { FuelPaymentMethod(rawValue: paymentMethodRaw) ?? .other }
         set { paymentMethodRaw = newValue.rawValue }
     }
+    /// What the person typed when the payment method is "Other" (a check, a
+    /// gift card, a fuel voucher). Empty for every other payment method.
+    var paymentMethodOther: String = ""
 
     // Diesel Exhaust Fluid — only relevant for diesel vehicles.
     var defAdded: Bool = false
@@ -607,6 +618,14 @@ final class ExpenseRecord {
     var category: ExpenseCategory {
         get { ExpenseCategory(rawValue: categoryRaw) ?? .other }
         set { categoryRaw = newValue.rawValue }
+    }
+    /// What the person typed when the category is "Other" (parking, a
+    /// storage fee). Empty for every other category.
+    var categoryOther: String = ""
+    /// The category as shown on screen: the typed description for "Other"
+    /// when there is one, otherwise the category's own (translated) name.
+    var categoryDisplayName: String {
+        category == .other && !categoryOther.isEmpty ? categoryOther : L(category.rawValue)
     }
     var date: Date = Date.now
     var amount: Double = 0

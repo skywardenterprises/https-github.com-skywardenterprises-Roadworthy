@@ -128,12 +128,15 @@ struct AddEditReminderView: View {
                 Section("Repeat By \(distanceUnit.displayName)") {
                     Toggle("Repeat Every X \(distanceUnit.displayName)", isOn: $repeatByMileage)
                     if repeatByMileage {
-                        DigitsField(
+                        IntervalField(
                             label: "Every",
-                            placeholder: distanceUnit.displayName,
+                            unit: Text(distanceUnit.rawValue),
                             text: $intervalMilesText,
                             maxDigits: 6,
-                            suffix: distanceUnit.rawValue
+                            step: 1000,
+                            quickPicks: (distanceUnit == .miles ? [3000, 5000, 7500, 10000] : [5000, 10000, 15000, 20000]).map {
+                                (value: $0, label: "\($0.formatted()) \(distanceUnit.rawValue)")
+                            }
                         )
                     }
                 }
@@ -141,12 +144,12 @@ struct AddEditReminderView: View {
                 Section("Repeat By Date") {
                     Toggle("Repeat Every X Months", isOn: $repeatByDate)
                     if repeatByDate {
-                        DigitsField(
+                        IntervalField(
                             label: "Every",
-                            placeholder: "Months",
+                            unit: Text("months"),
                             text: $intervalMonthsText,
                             maxDigits: 3,
-                            suffix: "mo"
+                            quickPicks: [3, 6, 12, 24].map { (value: $0, label: L("%lld months", $0)) }
                         )
                     }
                 }

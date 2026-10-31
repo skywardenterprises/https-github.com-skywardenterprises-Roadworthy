@@ -28,8 +28,8 @@ struct AddEditFuelView: View {
         var result: [String] = []
         for log in allFuelLogs {
             let name = log.stationName.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty, !seen.contains(name) else { continue }
-            seen.insert(name)
+            guard !name.isEmpty, !seen.contains(name.lowercased()) else { continue }
+            seen.insert(name.lowercased())
             result.append(name)
         }
         return result
@@ -47,6 +47,7 @@ struct AddEditFuelView: View {
     @State private var isFullTank = true
     @State private var stationName = ""
     @State private var paymentMethod: FuelPaymentMethod = .creditCard
+    @State private var paymentMethodOther = ""
     @State private var defAdded = false
     @State private var defAmountText = ""
     @State private var notes = ""
@@ -106,7 +107,7 @@ struct AddEditFuelView: View {
         formSnapshot(
             date, DigitsField.value(of: mileageText), fuelGrade,
             Double(gallonsText), Double(priceText), Double(totalCostText), isFullTank,
-            stationName, paymentMethod, effectiveDefAdded, Double(defAmountText),
+            stationName, paymentMethod, paymentMethod == .other ? paymentMethodOther.trimmed : "", effectiveDefAdded, Double(defAmountText),
             notes, receiptPhotoData
         )
     }
@@ -121,7 +122,7 @@ struct AddEditFuelView: View {
                 }
 
                 Section {
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    WheelDatePicker(title: "Date", date: $date)
                     DigitsField(
                         label: "Odometer (\(distanceUnit.rawValue))",
                         placeholder: "Odometer",
@@ -163,10 +164,15 @@ struct AddEditFuelView: View {
                             .disabled(isTotalLocked)
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityHint(isTotalLocked ? "Calculated from gallons and price. Clear either one to enter a total yourself." : "")
+                    .accessibilityHint(isTotalLocked ? "The app calculated this from Gallons and Price. To type your own total, clear Gallons or Price first." : "")
+                } footer: {
+                    Text("Enter any two of these: Gallons, Price / Gallon, or Total Cost. The app fills in the third one for you. When the app fills in Total Cost, it locks. To enter the exact total from your receipt, such as after a discount, clear Price / Gallon and type the total you paid. The app will calculate the price per gallon.")
+                }
+
+                Section {
                     Toggle("Filled to Full Tank", isOn: $isFullTank)
                 } footer: {
-                    Text("Enter any two of Gallons, Price/Gallon, and Total Cost, and the third fills in automatically. When Total Cost is calculated it's locked; to record a discount, enter Gallons and the total you paid, and Price/Gallon is calculated instead.")
+                    Text("Turn this on when you filled the tank all the way up. The app calculates MPG from one full tank to the next, so partial fill-ups are counted in between.")
                 }
 
                 Section {
@@ -175,6 +181,9 @@ struct AddEditFuelView: View {
                         ForEach(FuelPaymentMethod.allCases) { method in
                             Text(LocalizedStringKey(method.rawValue)).tag(method)
                         }
+                    }
+                    if paymentMethod == .other {
+                        TextField("Describe the payment method (e.g. Check)", text: $paymentMethodOther)
                     }
                 }
 
@@ -364,6 +373,7 @@ struct AddEditFuelView: View {
         isFullTank = log.isFullTank
         stationName = log.stationName
         paymentMethod = log.paymentMethod
+        paymentMethodOther = log.paymentMethodOther
         defAdded = log.defAdded
         defAmountText = log.defAmount == 0 ? "" : String(log.defAmount)
         notes = log.notes
@@ -398,8 +408,9 @@ struct AddEditFuelView: View {
             log.pricePerGallon = priceValue
             log.totalCost = totalCost
             log.isFullTank = isFullTank
-            log.stationName = stationName.trimmed
+            log.stationName = stationName.normalizedPlaceName(history: stationNameHistory)
             log.paymentMethod = paymentMethod
+            log.paymentMethodOther = paymentMethod == .other ? paymentMethodOther.trimmed : ""
             log.defAdded = defAdded
             log.defAmount = defAmount
             log.notes = notes
@@ -414,12 +425,13 @@ struct AddEditFuelView: View {
                 receiptPhotoData: receiptPhotoData,
                 totalCost: totalCost,
                 fuelGrade: fuelGrade,
-                stationName: stationName.trimmed,
+                stationName: stationName.normalizedPlaceName(history: stationNameHistory),
                 paymentMethod: paymentMethod,
                 defAdded: defAdded,
                 defAmount: defAmount,
                 notes: notes
             )
+            newLog.paymentMethodOther = paymentMethod == .other ? paymentMethodOther.trimmed : ""
             newLog.vehicle = vehicle
             context.insert(newLog)
         }

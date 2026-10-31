@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// A text field that suggests previously-entered values as tappable chips —
-/// used for Station Name on fuel logs, where people tend to
-/// visit the same handful of places repeatedly. Suggestions come entirely
+/// used for Station Name on fuel logs and Shop Name on maintenance
+/// logs, where people tend to visit the same handful of places repeatedly. Suggestions come entirely
 /// from data already stored on-device; nothing new is collected or sent
 /// anywhere.
 struct AutocompleteField: View {
@@ -33,6 +33,7 @@ struct AutocompleteField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField(LocalizedStringKey(title), text: $text)
+                .textInputAutocapitalization(.words)
                 .focused($isFocused)
 
             if isFocused && !suggestions.isEmpty {
@@ -63,5 +64,22 @@ struct AutocompleteField: View {
                 }
             }
         }
+    }
+}
+
+extension String {
+    /// Cleans up a shop or station name before it is saved. Capitalization
+    /// is ignored when matching, so a name already saved before keeps its
+    /// saved spelling ("jiffy lube" becomes "Jiffy Lube"). A new name typed
+    /// entirely in lowercase gets each word capitalized. Names with any
+    /// capitals of their own ("AutoZone", "BMW of Denver") are left as typed.
+    func normalizedPlaceName(history: [String]) -> String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        if let match = history.first(where: { $0.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return match
+        }
+        if trimmed == trimmed.lowercased() { return trimmed.capitalized }
+        return trimmed
     }
 }

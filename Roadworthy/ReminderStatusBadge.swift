@@ -7,9 +7,11 @@ struct ReminderStatusBadge: View {
 
     private var color: Color {
         switch status {
-        case .overdue: return .red
-        case .upcoming: return .orange
-        case .onTrack: return .green
+        // Darker than the system colors so the white label is readable
+        // (4.5:1 or better) in both light and dark appearance.
+        case .overdue: return Color(red: 0.78, green: 0.16, blue: 0.16)
+        case .upcoming: return Color(red: 0.71, green: 0.37, blue: 0.02)
+        case .onTrack: return Color(red: 0.18, green: 0.49, blue: 0.20)
         }
     }
 
@@ -30,7 +32,7 @@ extension MaintenanceReminder {
     /// normal secondary color. Shared by the reminder list and Overview.
     func mileageTint(currentMileage: Int) -> Color {
         if isDue(currentMileage: currentMileage) { return .red }
-        if isDueSoon(currentMileage: currentMileage) { return .orange }
+        if isDueSoon(currentMileage: currentMileage) { return RWColor.amber }
         return .secondary
     }
 

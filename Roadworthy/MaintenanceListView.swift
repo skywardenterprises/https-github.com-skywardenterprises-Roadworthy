@@ -8,6 +8,7 @@ struct MaintenanceListView: View {
     @State private var recordToEdit: MaintenanceRecord?
     @State private var pendingDeletion: [MaintenanceRecord] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     private var sortedRecords: [MaintenanceRecord] {
         vehicle.maintenanceRecords.sorted { $0.date > $1.date }
@@ -67,6 +68,19 @@ struct MaintenanceListView: View {
         }
         .navigationTitle("Maintenance")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditMaintenanceView(vehicle: vehicle, record: nil)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "maintenance record") { deleteRecords($0) }
         .saveErrorAlert($saveError)
         .sheet(item: $recordToEdit) { record in

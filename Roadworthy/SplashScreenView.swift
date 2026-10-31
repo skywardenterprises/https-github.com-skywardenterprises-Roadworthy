@@ -5,7 +5,7 @@ struct SplashScreenView: View {
 
     var body: some View {
         ZStack {
-            Color.accentColor
+            RWColor.splash
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {

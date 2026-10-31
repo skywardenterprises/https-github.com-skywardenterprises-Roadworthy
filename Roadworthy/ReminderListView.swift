@@ -9,6 +9,7 @@ struct ReminderListView: View {
     @State private var reminderToEdit: MaintenanceReminder?
     @State private var pendingDeletion: [MaintenanceReminder] = []
     @State private var saveError: String?
+    @State private var showingAdd = false
 
     // Reminders with the least mileage remaining show first (this also
     // naturally surfaces overdue reminders first, since overdue mileage is
@@ -45,6 +46,19 @@ struct ReminderListView: View {
         }
         .navigationTitle("Reminders")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showingAdd) {
+            AddEditReminderView(vehicle: vehicle, reminder: nil)
+        }
         .confirmDeletion(of: $pendingDeletion, noun: "reminder") { deleteReminders($0) }
         .saveErrorAlert($saveError)
         .sheet(item: $reminderToEdit) { reminder in
