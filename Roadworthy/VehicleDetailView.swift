@@ -263,6 +263,141 @@ private struct OverviewTab: View {
         }
     }
 
+    // MARK: - Upcoming (reminders + due dates from service logs)
+
+    private enum UpcomingItem: Identifiable {
+        case reminder(MaintenanceReminder)
+        case service(MaintenanceRecord)
+
+        var id: AnyHashable {
+            switch self {
+            case .reminder(let reminder): AnyHashable(reminder.persistentModelID)
+            case .service(let record): AnyHashable(record.persistentModelID)
+            }
+        }
+    }
+
+    private func upcomingKey(type: MaintenanceType, title: String) -> String {
+        type == .other ? "other:" + title.lowercased() : type.rawValue
+    }
+
+    /// Reminders and the next-due entries from service logs in one list.
+    /// When a reminder covers the same service as a log's next-due entry,
+    /// only the reminder is shown. Most urgent first.
+    private var upcomingItems: [UpcomingItem] {
+        let reminderKeys = Set(vehicle.reminders.map { upcomingKey(type: $0.type, title: $0.title) })
+        let services = upcomingMaintenance.filter {
+            !reminderKeys.contains(upcomingKey(type: $0.type, title: $0.title))
+        }
+        let items = vehicle.reminders.map(UpcomingItem.reminder) + services.map(UpcomingItem.service)
+        return items.sorted { upcomingSortKey($0) < upcomingSortKey($1) }
+    }
+
+    private func statusRank(_ status: ReminderStatus) -> Int {
+        switch status {
+        case .overdue: return 0
+        case .upcoming: return 1
+        case .onTrack: return 2
+        }
+    }
+
+    private func upcomingSortKey(_ item: UpcomingItem) -> (Int, Int, Int) {
+        switch item {
+        case .reminder(let reminder):
+            let key = reminder.sortKey(currentMileage: vehicle.currentMileage)
+            return (statusRank(reminder.status(currentMileage: vehicle.currentMileage)), key.0, key.1)
+        case .service(let record):
+            let key = serviceSortKey(record)
+            return (statusRank(serviceStatus(record)), key.0, key.1)
+        }
+    }
+
+    private func daysUntil(_ date: Date) -> Int {
+        let calendar = Calendar.current
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: .now), to: calendar.startOfDay(for: date)).day ?? 0
+    }
+
+    /// Same idea as a reminder's badge: overdue once the date or mileage has
+    /// passed, upcoming within 14 days or 1,000 miles, otherwise on track.
+    private func serviceStatus(_ record: MaintenanceRecord) -> ReminderStatus {
+        if isOverdue(record) { return .overdue }
+        if let dueDate = record.nextDueDate, daysUntil(dueDate) <= 14 { return .upcoming }
+        if let dueMileage = record.nextDueMileage, dueMileage > 0, dueMileage - vehicle.currentMileage <= 1000 { return .upcoming }
+        return .onTrack
+    }
+
+    private func serviceSortKey(_ record: MaintenanceRecord) -> (Int, Int) {
+        if let dueMileage = record.nextDueMileage, dueMileage > 0 {
+            return (0, dueMileage - vehicle.currentMileage)
+        }
+        if let dueDate = record.nextDueDate { return (1, daysUntil(dueDate)) }
+        return (1, Int.max)
+    }
+
+    private func reminderRow(_ reminder: MaintenanceReminder) -> some View {
+        Button {
+            reminderToEdit = reminder
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(reminder.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    if let dueMileage = reminder.nextDueMileage {
+                        Text("Every \(convertFromMiles(reminder.intervalMiles, to: distanceUnit).formatted()) \(distanceUnit.rawValue) — next at \(Text(formattedDistance(dueMileage, unit: distanceUnit)).foregroundStyle(reminder.mileageTint(currentMileage: vehicle.currentMileage)))")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                    if let dueDate = reminder.nextDueDate {
+                        Text("Every \(reminder.intervalMonths) mo — next on \(Text(dueDate.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(reminder.dateTint(currentMileage: vehicle.currentMileage)))")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+                Spacer()
+                ReminderStatusBadge(status: reminder.status(currentMileage: vehicle.currentMileage))
+            }
+            .padding(12)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens this reminder")
+    }
+
+    private func serviceDueRow(_ record: MaintenanceRecord) -> some View {
+        Button {
+            maintenanceToEdit = record
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(record.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    if let dueDate = record.nextDueDate {
+                        Text("Due \(dueDate.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption)
+                            .foregroundStyle(isOverdue(record) ? .red : .secondary)
+                    }
+                    if let dueMileage = record.nextDueMileage, dueMileage > 0 {
+                        Text("Due at \(formattedDistance(dueMileage, unit: distanceUnit))")
+                            .font(.caption)
+                            .foregroundStyle(isOverdue(record) ? .red : .secondary)
+                    }
+                }
+                Spacer()
+                ReminderStatusBadge(status: serviceStatus(record))
+            }
+            .padding(12)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens this service record")
+    }
+
     // Excludes implausible intervals (a typo, a missed fill-up, etc.) so one
     // bad data point can't silently distort Average/Last/Best MPG.
     private var mpgIntervals: [Double] {
@@ -318,39 +453,16 @@ private struct OverviewTab: View {
                         }
                     }
 
-                    if !vehicle.reminders.isEmpty {
-                        statSection(title: "REMINDERS") {
+                    if !upcomingItems.isEmpty {
+                        statSection(title: "UPCOMING") {
                             VStack(spacing: 10) {
-                                ForEach(sortedReminders) { reminder in
-                                    Button {
-                                        reminderToEdit = reminder
-                                    } label: {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(reminder.title)
-                                                .font(.subheadline)
-                                                .fontWeight(.medium)
-                                            if let dueMileage = reminder.nextDueMileage {
-                                                Text("Every \(convertFromMiles(reminder.intervalMiles, to: distanceUnit).formatted()) \(distanceUnit.rawValue) — next at \(Text(formattedDistance(dueMileage, unit: distanceUnit)).foregroundStyle(reminder.mileageTint(currentMileage: vehicle.currentMileage)))")
-                                                    .foregroundStyle(.secondary)
-                                                    .font(.caption)
-                                            }
-                                            if let dueDate = reminder.nextDueDate {
-                                                Text("Every \(reminder.intervalMonths) mo — next on \(Text(dueDate.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(reminder.dateTint(currentMileage: vehicle.currentMileage)))")
-                                                    .foregroundStyle(.secondary)
-                                                    .font(.caption)
-                                            }
-                                        }
-                                        Spacer()
-                                        ReminderStatusBadge(status: reminder.status(currentMileage: vehicle.currentMileage))
+                                ForEach(upcomingItems) { item in
+                                    switch item {
+                                    case .reminder(let reminder):
+                                        reminderRow(reminder)
+                                    case .service(let record):
+                                        serviceDueRow(record)
                                     }
-                                    .padding(12)
-                                    .background(Color(.secondarySystemGroupedBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    .contentShape(RoundedRectangle(cornerRadius: 10))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityHint("Opens this reminder")
                                 }
                             }
                         }
@@ -416,39 +528,6 @@ private struct OverviewTab: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    if !upcomingMaintenance.isEmpty {
-                        statSection(title: "UPCOMING / DUE") {
-                            VStack(spacing: 10) {
-                                ForEach(upcomingMaintenance) { record in
-                                    Button {
-                                        maintenanceToEdit = record
-                                    } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(record.title)
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                        if let dueDate = record.nextDueDate {
-                                            Text("Due \(dueDate.formatted(date: .abbreviated, time: .omitted))")
-                                                .font(.caption)
-                                                .foregroundStyle(isOverdue(record) ? .red : .secondary)
-                                        }
-                                        if let dueMileage = record.nextDueMileage, dueMileage > 0 {
-                                            Text("Due at \(formattedDistance(dueMileage, unit: distanceUnit))")
-                                                .font(.caption)
-                                                .foregroundStyle(isOverdue(record) ? .red : .secondary)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(12)
-                                    .background(Color(.secondarySystemGroupedBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    .contentShape(RoundedRectangle(cornerRadius: 10))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
                 }
                 .padding(.bottom, 24)
             }
