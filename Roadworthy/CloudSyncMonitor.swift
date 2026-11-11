@@ -468,6 +468,12 @@ final class CloudSyncMonitor: ObservableObject {
         if let ckError = error as? CKError {
             if ckError.code == .partialFailure, let itemErrors = ckError.partialErrorsByItemID {
                 let nested = itemErrors.values.flatMap { rootCKErrors($0) }
+                // When one record in a batch is rejected, CloudKit marks every
+                // other record in that batch as "batch request failed". Those
+                // are side effects. The record that caused the rejection
+                // carries the real error, so report that one.
+                let primary = nested.filter { $0.code != .batchRequestFailed }
+                if !primary.isEmpty { return primary }
                 return nested.isEmpty ? [ckError] : nested
             }
             return [ckError]
@@ -487,6 +493,9 @@ final class CloudSyncMonitor: ObservableObject {
             return .transient("No internet connection. Sync will resume automatically once you're back online.")
         case .serviceUnavailable, .requestRateLimited, .zoneBusy, .serverResponseLost, .limitExceeded, .partialFailure:
             return .transient("iCloud is busy. Sync will retry automatically.")
+        case .batchRequestFailed:
+            // Only a side effect of another record's failure (see rootCKErrors).
+            return .transient("iCloud rejected a group of changes. Sync will retry automatically.")
         case .notAuthenticated:
             return .needsAction("Sign in to iCloud in Settings to resume syncing.")
         case .quotaExceeded:

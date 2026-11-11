@@ -3474,6 +3474,40 @@
         }
       }
     },
+    "Dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer"
+          }
+        }
+      }
+    },
+    "iCloud rejected a group of changes. Sync will retry automatically." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud rechazó un grupo de cambios. La sincronización se reintentará automáticamente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud a refusé un groupe de modifications. La synchronisation réessaiera automatiquement."
+          }
+        }
+      }
+    },
     "Filled to Full Tank" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -151,6 +151,9 @@ private struct RootView: View {
     @State private var showingOnboarding = false
     @AppStorage(SettingKey.hasSeenImportPrompt) private var hasSeenImportPrompt = false
     @State private var showingImportPrompt = false
+    /// The banner message the person closed. The banner stays hidden while the
+    /// message is the same, and returns if the problem changes or on next launch.
+    @State private var dismissedBannerMessage: String?
     @AppStorage(SettingKey.appLanguage) private var appLanguage: AppLanguage = .system
 
     init(storeMode: StoreMode) {
@@ -220,18 +223,26 @@ private struct RootView: View {
     @ViewBuilder
     private var syncBanner: some View {
         if let message = syncMonitor.state.bannerMessage {
-            SyncBanner(systemImage: "exclamationmark.icloud.fill", message: message, tint: .orange)
+            if message != dismissedBannerMessage {
+                SyncBanner(
+                    systemImage: "exclamationmark.icloud.fill",
+                    message: message,
+                    tint: .orange,
+                    onDismiss: { dismissedBannerMessage = message }
+                )
+            }
         } else if syncMonitor.isWaitingForInitialImport && allVehicles.isEmpty {
             SyncBanner(
                 systemImage: "icloud.and.arrow.down",
                 message: "Checking iCloud for your vehicles. On a new device this can take a few minutes.",
                 tint: .secondary
             )
-        } else if syncMonitor.accountChangedNotice && allVehicles.isEmpty {
+        } else if syncMonitor.accountChangedNotice && allVehicles.isEmpty && dismissedBannerMessage != "account-changed" {
             SyncBanner(
                 systemImage: "person.crop.circle.badge.exclamationmark",
                 message: "Your iCloud account changed. Vehicles saved under a previously signed-in Apple ID will reappear if you sign back into that account.",
-                tint: .orange
+                tint: .orange,
+                onDismiss: { dismissedBannerMessage = "account-changed" }
             )
         }
     }
@@ -261,6 +272,8 @@ private struct SyncBanner: View {
     let systemImage: String
     let message: String
     let tint: Color
+    /// When set, the banner shows a close button.
+    var onDismiss: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -269,11 +282,24 @@ private struct SyncBanner: View {
             Text(message)
                 .font(.footnote)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            if let onDismiss {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, -10)
+                .padding(.top, -10)
+                .accessibilityLabel("Dismiss")
+            }
         }
         .padding(12)
         .background(.regularMaterial)
         .overlay(alignment: .bottom) { Divider() }
-        .accessibilityElement(children: .combine)
     }
 }
 
